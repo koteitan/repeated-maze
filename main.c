@@ -25,7 +25,7 @@
 #include "solver.h"
 #include "quizmaster.h"
 
-#define VERSION "0.1.2"
+#define VERSION "0.1.3"
 
 /*
  * usage -- print usage information to stderr and exit with code 1.
@@ -34,7 +34,7 @@ static void usage(void) {
     fprintf(stderr,
         "Usage:\n"
         "  repeated-maze solve <nterm> <maze_string>\n"
-        "  repeated-maze search <nterm> --max-aport <N> [--min-aport <N>]\n");
+        "  repeated-maze search <nterm> --max-aport <N> [--min-aport <N>] [--max-len <N>] [--random <seed>]\n");
     exit(1);
 }
 
@@ -101,12 +101,18 @@ static int cmd_search(int argc, char **argv) {
 
     int min_aport = 0;
     int max_aport = -1;
+    int max_len = 0;
+    int random_seed = -1;
 
     for (int i = 3; i < argc; i++) {
         if (strcmp(argv[i], "--max-aport") == 0 && i + 1 < argc)
             max_aport = atoi(argv[++i]);
         else if (strcmp(argv[i], "--min-aport") == 0 && i + 1 < argc)
             min_aport = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--max-len") == 0 && i + 1 < argc)
+            max_len = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--random") == 0 && i + 1 < argc)
+            random_seed = atoi(argv[++i]);
     }
 
     if (max_aport < 0) {
@@ -114,9 +120,17 @@ static int cmd_search(int argc, char **argv) {
         usage();
     }
 
-    printf("Search: nterm=%d min_aport=%d max_aport=%d\n", nterm, min_aport, max_aport);
-
-    QMResult r = quizmaster_search(nterm, min_aport, max_aport);
+    QMResult r;
+    if (random_seed >= 0) {
+        printf("Random search: nterm=%d min_aport=%d max_aport=%d max_len=%d seed=%d\n",
+               nterm, min_aport, max_aport, max_len, random_seed);
+        r = quizmaster_random_search(nterm, min_aport, max_aport, max_len,
+                                     (unsigned int)random_seed);
+    } else {
+        printf("Search: nterm=%d min_aport=%d max_aport=%d max_len=%d\n",
+               nterm, min_aport, max_aport, max_len);
+        r = quizmaster_search(nterm, min_aport, max_aport, max_len);
+    }
 
     if (r.best_maze) {
         printf("\n=== Best result ===\n");

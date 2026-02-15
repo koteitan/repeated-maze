@@ -28,23 +28,38 @@ typedef struct {
 } QMResult;
 
 /*
- * quizmaster_search -- search for the maze with the longest minimal path.
+ * quizmaster_search -- exhaustive search for the maze with the longest
+ * minimal path.
  *
  * Parameters:
  *   nterm      -- number of terminal indices per direction (must be >= 2)
+ *   min_aport  -- minimum number of active ports per maze
  *   max_aport  -- maximum number of active ports per maze
- *
- * Algorithm:
- *   For k = 0 to max_aport:
- *     For each combination of k ports from total_nports:
- *       Clear maze, set the k chosen ports.
- *       (Optimization: skip if no exit from start or no entry to goal.)
- *       Solve the maze with IDDFS.
- *       Track global best.
+ *   max_len    -- stop early when best path length >= max_len (0 = no limit)
  *
  * Returns a QMResult with the best maze found. Use qmresult_free() to release.
  */
-QMResult quizmaster_search(int nterm, int min_aport, int max_aport);
+QMResult quizmaster_search(int nterm, int min_aport, int max_aport, int max_len);
+
+/*
+ * quizmaster_random_search -- random sampling search for the maze with the
+ * longest minimal path.
+ *
+ * Runs in an infinite loop until SIGINT (Ctrl+C) or max_len is reached.
+ * Each iteration randomly picks k in [min_aport, max_aport] and randomly
+ * selects k ports from the candidate set.
+ *
+ * Parameters:
+ *   nterm      -- number of terminal indices per direction (must be >= 2)
+ *   min_aport  -- minimum number of active ports per maze
+ *   max_aport  -- maximum number of active ports per maze
+ *   max_len    -- stop early when best path length >= max_len (0 = no limit)
+ *   seed       -- random seed for srand()
+ *
+ * Returns a QMResult with the best maze found. Use qmresult_free() to release.
+ */
+QMResult quizmaster_random_search(int nterm, int min_aport, int max_aport,
+                                  int max_len, unsigned int seed);
 
 /* qmresult_free -- free the maze and path stored in a QMResult. */
 void qmresult_free(QMResult *r);

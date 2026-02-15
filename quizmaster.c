@@ -20,6 +20,11 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <signal.h>
+
+/* SIGINT handling for graceful Ctrl+C exit in random search */
+static volatile sig_atomic_t interrupted = 0;
+static void sigint_handler(int sig) { (void)sig; interrupted = 1; }
 
 /*
  * qmresult_free -- release all heap memory stored in a QMResult.
@@ -143,8 +148,9 @@ static int has_abstract_path(const Maze *m) {
  *    combinations of candidate port indices.
  * 3. For each combination, set ports, check abstract reachability,
  *    solve if reachable, and track the global best.
+ * 4. Stop early if max_len > 0 and best_len >= max_len.
  */
-QMResult quizmaster_search(int nterm, int min_aport, int max_aport) {
+QMResult quizmaster_search(int nterm, int min_aport, int max_aport, int max_len) {
     QMResult result = {NULL, 0, NULL, 0};
     if (nterm < 2) return result;
 
@@ -204,6 +210,11 @@ QMResult quizmaster_search(int nterm, int min_aport, int max_aport) {
                             k, (unsigned long long)combo_count, best_len);
                     fprintf(stderr, "  ");
                     maze_fprint(stderr, best);
+                    if (max_len > 0 && best_len >= max_len) {
+                        total_evaluated++;
+                        combo_count++;
+                        goto search_done;
+                    }
                 }
             } else {
                 total_pruned++;
@@ -235,6 +246,7 @@ QMResult quizmaster_search(int nterm, int min_aport, int max_aport) {
         }
     }
 
+search_done:
     free(combo);
     free(candidates);
 
@@ -256,5 +268,139 @@ QMResult quizmaster_search(int nterm, int min_aport, int max_aport) {
     }
 
     maze_destroy(m);
+    return result;
+}
+
+/*
+ * quizmaster_random_search -- random sampling search with SIGINT handling.
+ *
+ * Each iteration randomly picks k in [min_aport, max_aport] and selects
+ * k random ports from the candidate set. Runs until SIGINT or max_len
+ * is reached.
+ */
+QMResult quizmaster_random_search(int nterm, int min_aport, int max_aport,
+                                  int max_len, unsigned int seed) {
+    QMResult result = {NULL, 0, NULL, 0};
+    if (nterm < 2) return result;
+
+    srand(seed);
+    interrupted = 0;
+
+    /* Install SIGINT handler */
+    struct sigaction sa, old_sa;
+    sa.sa_handler = sigint_handler;
+    sa.sa_flags = 0;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGINT, &sa, &old_sa);
+
+    Maze *m = maze_create(nterm);
+    int total = m->total_nports;
+
+    /* Build candidate list (exclude self-loop ports) */
+    int *candidates = malloc(total * sizeof(int));
+    int ncand = 0;
+    for (int i = 0; i < total; i++) {
+        if (!is_self_loop_port(m, i))
+            candidates[ncand++] = i;
+    }
+
+    fprintf(stderr, "Random search (seed=%u): %d candidates (excluding %d self-loops)\n",
+            seed, ncand, total - ncand);
+
+    /* Clamp range to candidate count */
+    if (min_aport < 0) min_aport = 0;
+    if (max_aport > ncand) max_aport = ncand;
+
+    int k_range = max_aport - min_aport + 1;
+
+    Maze *best = NULL;
+    int best_len = 0;
+    uint64_t total_evaluated = 0;
+    uint64_t total_solved = 0;
+    uint64_t total_pruned = 0;
+
+    /* Index array for Fisher-Yates shuffle */
+    int *indices = malloc(ncand * sizeof(int));
+
+    while (!interrupted) {
+        /* Pick random k */
+        int k = min_aport + rand() % k_range;
+
+        /* Select k random candidates via partial Fisher-Yates */
+        for (int i = 0; i < ncand; i++)
+            indices[i] = i;
+        for (int i = 0; i < k; i++) {
+            int j = i + rand() % (ncand - i);
+            int tmp = indices[i];
+            indices[i] = indices[j];
+            indices[j] = tmp;
+        }
+
+        /* Set up the maze */
+        maze_clear(m);
+        for (int i = 0; i < k; i++)
+            maze_set_port(m, candidates[indices[i]], 1);
+
+        /* Pruning: abstract terminal reachability */
+        if (has_abstract_path(m)) {
+            int len = solve(m, NULL, NULL);
+            if (len < 0) len = 0;
+            total_solved++;
+
+            if (len > best_len) {
+                best_len = len;
+                if (best) maze_destroy(best);
+                best = maze_clone(m);
+                fprintf(stderr, "[iter %llu, k=%d] new best: length %d\n",
+                        (unsigned long long)total_evaluated, k, best_len);
+                fprintf(stderr, "  ");
+                maze_fprint(stderr, best);
+                if (max_len > 0 && best_len >= max_len)
+                    break;
+            }
+        } else {
+            total_pruned++;
+        }
+
+        total_evaluated++;
+
+        /* Progress reporting every 10000 iterations */
+        if (total_evaluated % 10000 == 0) {
+            fprintf(stderr, "[random] iter=%llu best=%d solved=%llu pruned=%llu\n",
+                    (unsigned long long)total_evaluated,
+                    best_len,
+                    (unsigned long long)total_solved,
+                    (unsigned long long)total_pruned);
+        }
+    }
+
+    free(indices);
+    free(candidates);
+
+    if (interrupted)
+        fprintf(stderr, "\nInterrupted by SIGINT.\n");
+
+    fprintf(stderr, "Random search complete: %llu evaluated, %llu solved, %llu pruned, best length = %d\n",
+            (unsigned long long)total_evaluated,
+            (unsigned long long)total_solved,
+            (unsigned long long)total_pruned,
+            best_len);
+
+    /* Re-solve the best maze to obtain the full path */
+    if (best) {
+        State *path = NULL;
+        int path_len = 0;
+        solve(best, &path, &path_len);
+        result.best_maze     = best;
+        result.best_length   = best_len;
+        result.best_path     = path;
+        result.best_path_len = path_len;
+    }
+
+    maze_destroy(m);
+
+    /* Restore previous SIGINT handler */
+    sigaction(SIGINT, &old_sa, NULL);
+
     return result;
 }
