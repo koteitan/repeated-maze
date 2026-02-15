@@ -3,10 +3,15 @@
  *                 minimal path (a "busy beaver" search over maze space).
  *
  * Enumerates all mazes with at most max_aport active ports by generating
- * all C(total_nports, k) combinations for k = 0, 1, ..., max_aport.
+ * all C(ncand, k) combinations for k = 0, 1, ..., max_aport, where ncand
+ * is the number of candidate ports (excluding useless self-loop ports).
  *
- * For each maze, early pruning skips mazes where the start state has no
- * outgoing port or the goal state has no incoming port.
+ * Pruning:
+ *   1. Self-loop elimination: ports Ti->Ti (same terminal) are excluded
+ *      from the candidate set since they map a state to itself.
+ *   2. Abstract terminal reachability: a tiny directed graph (2*nterm nodes)
+ *      checks whether the goal is reachable from the start at the terminal
+ *      type level. This subsumes start-exit and goal-entry checks.
  *
  * Progress and new-best discoveries are logged to stderr so that stdout
  * remains clean for the final result output.
@@ -44,106 +49,135 @@ static uint64_t binomial(int n, int k) {
 }
 
 /*
- * has_start_exit -- check if the start state (0,1,E,0) has any outgoing port.
+ * is_self_loop_port -- check if a flat port index is a terminal self-loop.
  *
- * The start state is at the nx block (0,1). Terminal E[0] can connect to E[di]
- * for di != 0. Also, block (1,1) has terminal W[0], so check all normal ports
- * from W[0].
+ * A normal-block port at flat index idx has:
+ *   src_terminal = idx / (4*nterm)
+ *   dst_terminal = idx % (4*nterm)
+ * It is a self-loop when src_terminal == dst_terminal (Ti->Ti),
+ * which maps a state to itself and can never contribute to a path.
+ *
+ * nx/ny ports exclude self-loops by construction (si != di), so they
+ * are never self-loops.
  */
-static int has_start_exit(const Maze *m) {
-    int n = m->nterm;
-    int n4 = 4 * n;
-
-    /* nx block: E[0] -> E[di] for di != 0 */
-    for (int di = 1; di < n; di++) {
-        int adj = di < 0 ? di : di - 1;  /* di > 0 always here, so adj = di - 1 */
-        if (m->nx_ports[0 * (n - 1) + adj])
-            return 1;
-    }
-
-    /* normal block (1,1): W[0] -> any terminal */
-    int src = TDIR_W * n + 0;
-    for (int dst = 0; dst < n4; dst++) {
-        if (m->normal_ports[src * n4 + dst])
-            return 1;
-    }
-
-    return 0;
+static int is_self_loop_port(const Maze *m, int idx) {
+    if (idx >= m->normal_nports) return 0;
+    int n4 = 4 * m->nterm;
+    return (idx / n4) == (idx % n4);
 }
 
 /*
- * has_goal_entry -- check if the goal state (0,1,E,1) has any incoming port.
+ * has_abstract_path -- check reachability in the abstract terminal graph.
  *
- * The goal state is at the nx block (0,1). Terminal E[1] can be reached from
- * E[si] for si != 1. Also, block (1,1) has terminal W[1], so check all normal
- * ports going to W[1].
+ * The abstract graph has 2*nterm nodes representing canonical state types:
+ *   (E, i) for i=0..nterm-1: indices 0..nterm-1
+ *   (N, i) for i=0..nterm-1: indices nterm..2*nterm-1
+ *
+ * Being at canonical (x,y,E,i) means we can use ports from both E[i]
+ * and W[i] terminals (they share the same canonical state type).
+ * Similarly (x,y,N,i) can use ports from N[i] and S[i].
+ *
+ * For each active port src->dst:
+ *   abstract_src: E/W terminal with index j -> node j; N/S -> node nterm+j
+ *   abstract_dst: same mapping
+ *   Add directed edge abstract_src -> abstract_dst
+ *
+ * Start: node 0 = (E, 0).  Goal: node 1 = (E, 1).
+ *
+ * BFS from start node using uint64_t bitmasks (no heap allocation).
+ * Returns 1 if goal is reachable, 0 otherwise.
  */
-static int has_goal_entry(const Maze *m) {
+static int has_abstract_path(const Maze *m) {
     int n = m->nterm;
     int n4 = 4 * n;
+    uint64_t adj[64];
+    memset(adj, 0, sizeof(adj));
 
-    /* nx block: E[si] -> E[1] for si != 1 */
-    for (int si = 0; si < n; si++) {
-        if (si == 1) continue;
-        int adj = 1 < si ? 1 : 1 - 1;  /* adjust for edge_idx */
-        /* Recalculate properly: edge_idx(n, si, 1) */
-        int di = 1;
-        adj = di < si ? di : di - 1;
-        if (m->nx_ports[si * (n - 1) + adj])
-            return 1;
+    /* Normal block ports */
+    for (int st = 0; st < n4; st++) {
+        int asrc = (st / n < 2) ? (st % n) : n + (st % n);
+        for (int dt = 0; dt < n4; dt++) {
+            if (st == dt) continue;
+            if (!m->normal_ports[st * n4 + dt]) continue;
+            int adst = (dt / n < 2) ? (dt % n) : n + (dt % n);
+            adj[asrc] |= 1ULL << adst;
+        }
     }
 
-    /* normal block (1,1): any terminal -> W[1] */
-    int dst = TDIR_W * n + 1;
-    for (int src = 0; src < n4; src++) {
-        if (m->normal_ports[src * n4 + dst])
-            return 1;
+    /* nx ports: E[si] -> E[di], abstract node si -> di */
+    for (int si = 0; si < n; si++)
+        for (int di = 0; di < n; di++)
+            if (si != di && maze_nx_port(m, si, di))
+                adj[si] |= 1ULL << di;
+
+    /* ny ports: N[si] -> N[di], abstract node (n+si) -> (n+di) */
+    for (int si = 0; si < n; si++)
+        for (int di = 0; di < n; di++)
+            if (si != di && maze_ny_port(m, si, di))
+                adj[n + si] |= 1ULL << (n + di);
+
+    /* BFS from node 0 (E, 0) */
+    uint64_t reachable = 1ULL << 0;
+    uint64_t frontier = reachable;
+    while (frontier) {
+        uint64_t next = 0;
+        uint64_t f = frontier;
+        while (f) {
+            int bit = __builtin_ctzll(f);
+            f &= f - 1;
+            next |= adj[bit] & ~reachable;
+        }
+        reachable |= next;
+        frontier = next;
     }
 
-    return 0;
+    /* Check if node 1 (E, 1) is reachable */
+    return (reachable >> 1) & 1;
 }
 
 /*
- * quizmaster_search -- exhaustive combination enumeration.
+ * quizmaster_search -- exhaustive combination enumeration with pruning.
  *
- * For each k from 0 to max_aport, enumerate all C(total_nports, k)
- * combinations of port indices. For each combination, set exactly those
- * ports active, apply early pruning, solve, and track the global best.
+ * 1. Build candidate port list (excluding self-loop ports).
+ * 2. For each k from 0 to max_aport, enumerate all C(ncand, k)
+ *    combinations of candidate port indices.
+ * 3. For each combination, set ports, check abstract reachability,
+ *    solve if reachable, and track the global best.
  */
-QMResult quizmaster_search(int nterm, int max_aport) {
+QMResult quizmaster_search(int nterm, int min_aport, int max_aport) {
     QMResult result = {NULL, 0, NULL, 0};
     if (nterm < 2) return result;
 
     Maze *m = maze_create(nterm);
     int total = m->total_nports;
 
-    /* Cap max_aport to total ports */
-    if (max_aport > total) max_aport = total;
+    /* Build candidate list (exclude self-loop ports) */
+    int *candidates = malloc(total * sizeof(int));
+    int ncand = 0;
+    for (int i = 0; i < total; i++) {
+        if (!is_self_loop_port(m, i))
+            candidates[ncand++] = i;
+    }
+
+    fprintf(stderr, "Ports: %d total, %d candidates (excluding %d self-loops)\n",
+            total, ncand, total - ncand);
+
+    /* Clamp range to candidate count */
+    if (min_aport < 0) min_aport = 0;
+    if (max_aport > ncand) max_aport = ncand;
 
     Maze *best = NULL;
     int best_len = 0;
     uint64_t total_evaluated = 0;
+    uint64_t total_solved = 0;
+    uint64_t total_pruned = 0;
 
-    /* combo[] holds the indices of active ports (in increasing order) */
-    int *combo = malloc(total * sizeof(int));
+    int *combo = malloc(ncand * sizeof(int));
 
-    for (int k = 0; k <= max_aport; k++) {
-        uint64_t ncombs = binomial(total, k);
+    for (int k = min_aport; k <= max_aport; k++) {
+        uint64_t ncombs = binomial(ncand, k);
         fprintf(stderr, "k=%d: C(%d,%d) = %llu mazes\n",
-                k, total, k, (unsigned long long)ncombs);
-
-        if (k == 0) {
-            /* Only one maze: all ports off */
-            maze_clear(m);
-            /* No ports -> no exit from start, path_length = 0 */
-            /* But we still count it */
-            total_evaluated++;
-            if (0 > best_len) {
-                /* Can't happen, but for completeness */
-                best_len = 0;
-            }
-            continue;
-        }
+                k, ncand, k, (unsigned long long)ncombs);
 
         /* Initialize combo to {0, 1, ..., k-1} */
         for (int i = 0; i < k; i++)
@@ -154,33 +188,25 @@ QMResult quizmaster_search(int nterm, int max_aport) {
             /* Set up the maze for this combination */
             maze_clear(m);
             for (int i = 0; i < k; i++)
-                maze_set_port(m, combo[i], 1);
+                maze_set_port(m, candidates[combo[i]], 1);
 
-            /* Early pruning */
-            int skip = 0;
-            if (k >= 2) {
-                /* Need at least 2 ports for a path (exit from start + entry to goal) */
-                if (!has_start_exit(m) || !has_goal_entry(m))
-                    skip = 1;
-            } else {
-                /* k == 1: impossible to have both start exit and goal entry */
-                skip = 1;
-            }
-
-            if (!skip) {
+            /* Pruning: abstract terminal reachability */
+            if (has_abstract_path(m)) {
                 int len = solve(m, NULL, NULL);
                 if (len < 0) len = 0;
+                total_solved++;
 
                 if (len > best_len) {
                     best_len = len;
                     if (best) maze_destroy(best);
                     best = maze_clone(m);
                     fprintf(stderr, "[k=%d, combo %llu] new best: length %d\n",
-                            k, (unsigned long long)combo_count,
-                            best_len);
+                            k, (unsigned long long)combo_count, best_len);
                     fprintf(stderr, "  ");
                     maze_fprint(stderr, best);
                 }
+            } else {
+                total_pruned++;
             }
 
             total_evaluated++;
@@ -188,19 +214,21 @@ QMResult quizmaster_search(int nterm, int max_aport) {
 
             /* Progress reporting every 10000 mazes */
             if (combo_count % 10000 == 0) {
-                fprintf(stderr, "[k=%d] progress: %llu/%llu (%.1f%%) best=%d\n",
+                fprintf(stderr, "[k=%d] progress: %llu/%llu (%.1f%%) best=%d solved=%llu pruned=%llu\n",
                         k,
                         (unsigned long long)combo_count,
                         (unsigned long long)ncombs,
                         (double)combo_count / (double)ncombs * 100.0,
-                        best_len);
+                        best_len,
+                        (unsigned long long)total_solved,
+                        (unsigned long long)total_pruned);
             }
 
             /* Generate next combination in lexicographic order */
             int i = k - 1;
-            while (i >= 0 && combo[i] == total - k + i)
+            while (i >= 0 && combo[i] == ncand - k + i)
                 i--;
-            if (i < 0) break;  /* All combinations exhausted */
+            if (i < 0) break;
             combo[i]++;
             for (int j = i + 1; j < k; j++)
                 combo[j] = combo[j - 1] + 1;
@@ -208,9 +236,13 @@ QMResult quizmaster_search(int nterm, int max_aport) {
     }
 
     free(combo);
+    free(candidates);
 
-    fprintf(stderr, "Search complete: %llu mazes evaluated, best length = %d\n",
-            (unsigned long long)total_evaluated, best_len);
+    fprintf(stderr, "Search complete: %llu evaluated, %llu solved, %llu pruned, best length = %d\n",
+            (unsigned long long)total_evaluated,
+            (unsigned long long)total_solved,
+            (unsigned long long)total_pruned,
+            best_len);
 
     /* Re-solve the best maze to obtain the full path */
     if (best) {

@@ -25,7 +25,7 @@
 #include "solver.h"
 #include "quizmaster.h"
 
-#define VERSION "0.1.1"
+#define VERSION "0.1.2"
 
 /*
  * usage -- print usage information to stderr and exit with code 1.
@@ -34,7 +34,7 @@ static void usage(void) {
     fprintf(stderr,
         "Usage:\n"
         "  repeated-maze solve <nterm> <maze_string>\n"
-        "  repeated-maze search <nterm> --max-aport <N>\n");
+        "  repeated-maze search <nterm> --max-aport <N> [--min-aport <N>]\n");
     exit(1);
 }
 
@@ -99,11 +99,14 @@ static int cmd_search(int argc, char **argv) {
         return 1;
     }
 
+    int min_aport = 0;
     int max_aport = -1;
 
     for (int i = 3; i < argc; i++) {
         if (strcmp(argv[i], "--max-aport") == 0 && i + 1 < argc)
             max_aport = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--min-aport") == 0 && i + 1 < argc)
+            min_aport = atoi(argv[++i]);
     }
 
     if (max_aport < 0) {
@@ -111,9 +114,9 @@ static int cmd_search(int argc, char **argv) {
         usage();
     }
 
-    printf("Search: nterm=%d max_aport=%d\n", nterm, max_aport);
+    printf("Search: nterm=%d min_aport=%d max_aport=%d\n", nterm, min_aport, max_aport);
 
-    QMResult r = quizmaster_search(nterm, max_aport);
+    QMResult r = quizmaster_search(nterm, min_aport, max_aport);
 
     if (r.best_maze) {
         printf("\n=== Best result ===\n");

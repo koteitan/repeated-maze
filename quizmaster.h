@@ -44,7 +44,7 @@ typedef struct {
  *
  * Returns a QMResult with the best maze found. Use qmresult_free() to release.
  */
-QMResult quizmaster_search(int nterm, int max_aport);
+QMResult quizmaster_search(int nterm, int min_aport, int max_aport);
 
 /* qmresult_free -- free the maze and path stored in a QMResult. */
 void qmresult_free(QMResult *r);
