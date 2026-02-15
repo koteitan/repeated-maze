@@ -1,3 +1,23 @@
+/*
+ * main.c -- CLI entry point for the repeated-maze program.
+ *
+ * Provides two subcommands:
+ *
+ *   solve  -- Parse a maze from its string representation and find the
+ *             shortest path from start to goal using IDDFS. Displays the
+ *             maze, path, port table, grid visualization, and verbose
+ *             transition log.
+ *
+ *   search -- Run the quizmaster exhaustive search to find the maze
+ *             configuration (port assignment) that maximizes the shortest
+ *             path length. Displays the best result found, including all
+ *             visualizations.
+ *
+ * Usage:
+ *   repeated-maze solve <nterm> <maze_string>
+ *   repeated-maze search <nterm> --max-aport <N>
+ *   repeated-maze --version | -v
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -5,20 +25,25 @@
 #include "solver.h"
 #include "quizmaster.h"
 
-#define VERSION "0.1.0"
+#define VERSION "0.1.1"
 
+/*
+ * usage -- print usage information to stderr and exit with code 1.
+ */
 static void usage(void) {
     fprintf(stderr,
         "Usage:\n"
         "  repeated-maze solve <nterm> <maze_string>\n"
-        "  repeated-maze search <nterm> [options]\n"
-        "Options:\n"
-        "  --max-coord <N>   Max coordinate bound (default: 1000)\n"
-        "  --max-iter <N>    Max search iterations (default: 1000000)\n"
-        "  --seed <N>        Random seed\n");
+        "  repeated-maze search <nterm> --max-aport <N>\n");
     exit(1);
 }
 
+/*
+ * cmd_solve -- handle the "solve" subcommand.
+ *
+ * Parses a maze from the command-line string argument, runs the IDDFS solver,
+ * and prints the result with multiple visualization formats.
+ */
 static int cmd_solve(int argc, char **argv) {
     if (argc < 4) usage();
     int nterm = atoi(argv[2]);
@@ -27,12 +52,6 @@ static int cmd_solve(int argc, char **argv) {
         return 1;
     }
     const char *maze_str = argv[3];
-
-    int max_coord = 1000;
-    for (int i = 4; i < argc; i++) {
-        if (strcmp(argv[i], "--max-coord") == 0 && i + 1 < argc)
-            max_coord = atoi(argv[++i]);
-    }
 
     Maze *m = maze_parse(nterm, maze_str);
     if (!m) {
@@ -45,10 +64,10 @@ static int cmd_solve(int argc, char **argv) {
 
     State *path = NULL;
     int path_len = 0;
-    int result = solve(m, max_coord, &path, &path_len);
+    int result = solve(m, &path, &path_len);
 
     if (result < 0) {
-        printf("No path found (max_coord=%d)\n", max_coord);
+        printf("No path found\n");
     } else {
         printf("Path length: %d\n", result);
         printf("Path: ");
@@ -66,6 +85,12 @@ static int cmd_solve(int argc, char **argv) {
     return 0;
 }
 
+/*
+ * cmd_search -- handle the "search" subcommand.
+ *
+ * Runs the quizmaster exhaustive search to find the maze with the
+ * longest minimal path for the given nterm and max_aport.
+ */
 static int cmd_search(int argc, char **argv) {
     if (argc < 3) usage();
     int nterm = atoi(argv[2]);
@@ -74,23 +99,21 @@ static int cmd_search(int argc, char **argv) {
         return 1;
     }
 
-    int max_coord  = 1000;
-    int max_iter   = 1000000;
-    uint64_t seed  = 0;
+    int max_aport = -1;
 
     for (int i = 3; i < argc; i++) {
-        if (strcmp(argv[i], "--max-coord") == 0 && i + 1 < argc)
-            max_coord = atoi(argv[++i]);
-        else if (strcmp(argv[i], "--max-iter") == 0 && i + 1 < argc)
-            max_iter = atoi(argv[++i]);
-        else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc)
-            seed = strtoull(argv[++i], NULL, 10);
+        if (strcmp(argv[i], "--max-aport") == 0 && i + 1 < argc)
+            max_aport = atoi(argv[++i]);
     }
 
-    printf("Search: nterm=%d max_coord=%d max_iter=%d seed=%llu\n",
-           nterm, max_coord, max_iter, (unsigned long long)seed);
+    if (max_aport < 0) {
+        fprintf(stderr, "Error: --max-aport <N> is required\n");
+        usage();
+    }
 
-    QMResult r = quizmaster_search(nterm, max_coord, max_iter, seed);
+    printf("Search: nterm=%d max_aport=%d\n", nterm, max_aport);
+
+    QMResult r = quizmaster_search(nterm, max_aport);
 
     if (r.best_maze) {
         printf("\n=== Best result ===\n");
@@ -115,6 +138,9 @@ static int cmd_search(int argc, char **argv) {
     return 0;
 }
 
+/*
+ * main -- program entry point. Dispatches to subcommands.
+ */
 int main(int argc, char **argv) {
     if (argc < 2) usage();
 

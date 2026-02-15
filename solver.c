@@ -1,14 +1,34 @@
+/*
+ * solver.c -- IDDFS solver implementation.
+ *
+ * Uses iterative deepening depth-first search on the infinite grid of
+ * repeated blocks. A transposition table tracks the minimum depth at which
+ * each state has been visited, enabling effective pruning across iterations.
+ *
+ * The transition function enumerates neighbors of a canonical state by:
+ *   1. Finding up to 2 blocks that share the state's physical point.
+ *   2. For each block, enumerating all ports from the relevant terminal.
+ *   3. Converting each destination terminal to its canonical state.
+ */
 #include "solver.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 
+/* Maximum IDDFS depth limit. */
+#define MAX_DEPTH 200
+
 /* --- State helpers --- */
 
+/* state_eq -- return 1 if two states are identical, 0 otherwise. */
 static int state_eq(State a, State b) {
     return a.x == b.x && a.y == b.y && a.dir == b.dir && a.idx == b.idx;
 }
 
+/*
+ * state_hash -- FNV-1a hash of a state.
+ * Used for the open-addressing transposition table.
+ */
 static uint64_t state_hash(State s) {
     uint64_t h = 14695981039346656037ULL;
     h ^= (uint64_t)(uint32_t)s.x;  h *= 1099511628211ULL;
@@ -18,82 +38,106 @@ static uint64_t state_hash(State s) {
     return h;
 }
 
-/* --- Visited entry --- */
+/* --- Transposition Table --- */
 
+/*
+ * TTEntry -- an entry in the transposition table.
+ * Stores a state and the minimum depth at which it was visited.
+ * occupied == 0 means the slot is empty.
+ */
 typedef struct {
     State state;
-    int parent;   /* index in vis array, -1 for start */
-} VisEntry;
+    int min_depth;
+    int occupied;
+} TTEntry;
 
-/* --- BFS context --- */
-
+/*
+ * TT -- open-addressing hash table for transposition.
+ * size is always a power of 2 for fast modulo.
+ */
 typedef struct {
-    VisEntry *vis;
-    int vis_count;
-    int vis_cap;
-    int *ht;       /* hash table: index into vis[], or -1 */
-    int ht_size;   /* power of 2 */
-} BFS;
+    TTEntry *entries;
+    int size;
+    int count;
+} TT;
 
-static void bfs_init(BFS *b) {
-    b->vis_cap = 4096;
-    b->vis_count = 0;
-    b->vis = malloc(b->vis_cap * sizeof(VisEntry));
-    b->ht_size = 8192;
-    b->ht = malloc(b->ht_size * sizeof(int));
-    memset(b->ht, 0xFF, b->ht_size * sizeof(int));
+/* tt_init -- allocate an empty transposition table. */
+static void tt_init(TT *tt) {
+    tt->size = 8192;
+    tt->count = 0;
+    tt->entries = calloc(tt->size, sizeof(TTEntry));
 }
 
-static void bfs_free(BFS *b) {
-    free(b->vis);
-    free(b->ht);
+/* tt_free -- release all TT memory. */
+static void tt_free(TT *tt) {
+    free(tt->entries);
 }
 
-static int bfs_find(const BFS *b, State s) {
-    uint64_t h = state_hash(s) & (uint64_t)(b->ht_size - 1);
-    while (b->ht[h] != -1) {
-        if (state_eq(b->vis[b->ht[h]].state, s))
-            return b->ht[h];
-        h = (h + 1) & (uint64_t)(b->ht_size - 1);
-    }
-    return -1;
+/* tt_clear -- reset the table to empty without reallocating. */
+static void tt_clear(TT *tt) {
+    memset(tt->entries, 0, tt->size * sizeof(TTEntry));
+    tt->count = 0;
 }
 
-static void bfs_rebuild_ht(BFS *b) {
-    int new_size = b->ht_size * 2;
-    int *new_ht = malloc(new_size * sizeof(int));
-    memset(new_ht, 0xFF, new_size * sizeof(int));
-    for (int i = 0; i < b->vis_count; i++) {
-        uint64_t h = state_hash(b->vis[i].state) & (uint64_t)(new_size - 1);
-        while (new_ht[h] != -1)
+/*
+ * tt_rebuild -- double the table size and re-insert all entries.
+ * Called when load factor exceeds 50%.
+ */
+static void tt_rebuild(TT *tt) {
+    int new_size = tt->size * 2;
+    TTEntry *new_entries = calloc(new_size, sizeof(TTEntry));
+    for (int i = 0; i < tt->size; i++) {
+        if (!tt->entries[i].occupied) continue;
+        uint64_t h = state_hash(tt->entries[i].state) & (uint64_t)(new_size - 1);
+        while (new_entries[h].occupied)
             h = (h + 1) & (uint64_t)(new_size - 1);
-        new_ht[h] = i;
+        new_entries[h] = tt->entries[i];
     }
-    free(b->ht);
-    b->ht = new_ht;
-    b->ht_size = new_size;
+    free(tt->entries);
+    tt->entries = new_entries;
+    tt->size = new_size;
 }
 
-static int bfs_insert(BFS *b, State s, int parent) {
-    if (b->vis_count >= b->vis_cap) {
-        b->vis_cap *= 2;
-        b->vis = realloc(b->vis, b->vis_cap * sizeof(VisEntry));
+/*
+ * tt_update -- update the transposition table for a state at given depth.
+ *
+ * Returns 1 if the state should be explored (new entry or shallower depth),
+ * 0 if the state should be pruned (already visited at equal or shallower depth).
+ */
+static int tt_update(TT *tt, State s, int depth) {
+    if (tt->count * 2 >= tt->size)
+        tt_rebuild(tt);
+
+    uint64_t h = state_hash(s) & (uint64_t)(tt->size - 1);
+    while (tt->entries[h].occupied) {
+        if (state_eq(tt->entries[h].state, s)) {
+            if (depth < tt->entries[h].min_depth) {
+                tt->entries[h].min_depth = depth;
+                return 1;  /* shallower: re-explore */
+            }
+            return 0;  /* already visited at this depth or shallower */
+        }
+        h = (h + 1) & (uint64_t)(tt->size - 1);
     }
-    int idx = b->vis_count++;
-    b->vis[idx] = (VisEntry){s, parent};
-
-    if (b->vis_count * 2 > b->ht_size)
-        bfs_rebuild_ht(b);
-
-    uint64_t h = state_hash(s) & (uint64_t)(b->ht_size - 1);
-    while (b->ht[h] != -1)
-        h = (h + 1) & (uint64_t)(b->ht_size - 1);
-    b->ht[h] = idx;
-    return idx;
+    /* New entry */
+    tt->entries[h].state = s;
+    tt->entries[h].min_depth = depth;
+    tt->entries[h].occupied = 1;
+    tt->count++;
+    return 1;
 }
 
 /* --- Canonical conversion --- */
 
+/*
+ * to_canonical -- convert a block-local terminal to its canonical state.
+ *
+ * Given a terminal at block (bx, by) with direction tdir and index tidx:
+ *   E[n] @ (bx, by)  ->  canonical (bx,   by,   E, n)
+ *   W[n] @ (bx, by)  ->  canonical (bx-1, by,   E, n)  [W = E of left neighbor]
+ *   N[n] @ (bx, by)  ->  canonical (bx,   by,   N, n)
+ *   S[n] @ (bx, by)  ->  canonical (bx,   by-1, N, n)  [S = N of lower neighbor]
+ */
 static State to_canonical(int bx, int by, int tdir, int tidx) {
     State s;
     switch (tdir) {
@@ -109,17 +153,37 @@ static State to_canonical(int bx, int by, int tdir, int tidx) {
 
 /* --- Neighbor enumeration --- */
 
-static int get_neighbors(const Maze *m, State s, int max_coord,
-                         State *nbrs) {
+/*
+ * get_neighbors -- enumerate all states reachable from state s via one port.
+ *
+ * For a canonical state (sx, sy, dir, si), up to 2 blocks share this point:
+ *
+ *   dir == E:
+ *     Block (sx, sy)   has terminal E[si]  (if valid: nx or normal block)
+ *     Block (sx+1, sy) has terminal W[si]  (if normal block)
+ *
+ *   dir == N:
+ *     Block (sx, sy)   has terminal N[si]  (if valid: ny or normal block)
+ *     Block (sx, sy+1) has terminal S[si]  (if normal block)
+ *
+ * For each block, we enumerate all ports from the relevant terminal and
+ * convert each destination terminal to its canonical state.
+ * Only states with x >= 0 and y >= 0 are included (IDDFS depth limit
+ * naturally bounds the reachable coordinates).
+ *
+ * Parameters:
+ *   m         -- maze configuration
+ *   s         -- current state
+ *   nbrs      -- output array (must hold at least 8*nterm entries)
+ *
+ * Returns the number of neighbors written to nbrs[].
+ */
+static int get_neighbors(const Maze *m, State s, State *nbrs) {
     int n = m->nterm;
     int n4 = 4 * n;
     int cnt = 0;
 
     if (s.dir == CDIR_E) {
-        /*
-         * Physical point: E-side of block (sx,sy) / W-side of block (sx+1,sy)
-         */
-
         /* Block (sx, sy) — terminal E[si] */
         {
             int bx = s.x, by = s.y;
@@ -130,12 +194,11 @@ static int get_neighbors(const Maze *m, State s, int max_coord,
                     for (int dst = 0; dst < n4; dst++) {
                         if (!m->normal_ports[src * n4 + dst]) continue;
                         State ns = to_canonical(bx, by, dst / n, dst % n);
-                        if (ns.x >= 0 && ns.y >= 0 &&
-                            ns.x <= max_coord && ns.y <= max_coord)
+                        if (ns.x >= 0 && ns.y >= 0)
                             nbrs[cnt++] = ns;
                     }
                 } else {
-                    /* nx block (bx==0): only E terminals */
+                    /* nx block (bx==0) */
                     for (int dj = 0; dj < n; dj++) {
                         if (dj == s.idx) continue;
                         int adj = dj < s.idx ? dj : dj - 1;
@@ -150,23 +213,17 @@ static int get_neighbors(const Maze *m, State s, int max_coord,
         {
             int bx = s.x + 1, by = s.y;
             if (bx > 0 && by > 0) {
-                /* normal block */
                 int src = TDIR_W * n + s.idx;
                 for (int dst = 0; dst < n4; dst++) {
                     if (!m->normal_ports[src * n4 + dst]) continue;
                     State ns = to_canonical(bx, by, dst / n, dst % n);
-                    if (ns.x >= 0 && ns.y >= 0 &&
-                        ns.x <= max_coord && ns.y <= max_coord)
+                    if (ns.x >= 0 && ns.y >= 0)
                         nbrs[cnt++] = ns;
                 }
             }
         }
 
     } else {
-        /*
-         * CDIR_N: N-side of block (sx,sy) / S-side of block (sx,sy+1)
-         */
-
         /* Block (sx, sy) — terminal N[si] */
         {
             int bx = s.x, by = s.y;
@@ -177,12 +234,11 @@ static int get_neighbors(const Maze *m, State s, int max_coord,
                     for (int dst = 0; dst < n4; dst++) {
                         if (!m->normal_ports[src * n4 + dst]) continue;
                         State ns = to_canonical(bx, by, dst / n, dst % n);
-                        if (ns.x >= 0 && ns.y >= 0 &&
-                            ns.x <= max_coord && ns.y <= max_coord)
+                        if (ns.x >= 0 && ns.y >= 0)
                             nbrs[cnt++] = ns;
                     }
                 } else {
-                    /* ny block (by==0): only N terminals */
+                    /* ny block (by==0) */
                     for (int dj = 0; dj < n; dj++) {
                         if (dj == s.idx) continue;
                         int adj = dj < s.idx ? dj : dj - 1;
@@ -197,13 +253,11 @@ static int get_neighbors(const Maze *m, State s, int max_coord,
         {
             int bx = s.x, by = s.y + 1;
             if (bx > 0 && by > 0) {
-                /* normal block */
                 int src = TDIR_S * n + s.idx;
                 for (int dst = 0; dst < n4; dst++) {
                     if (!m->normal_ports[src * n4 + dst]) continue;
                     State ns = to_canonical(bx, by, dst / n, dst % n);
-                    if (ns.x >= 0 && ns.y >= 0 &&
-                        ns.x <= max_coord && ns.y <= max_coord)
+                    if (ns.x >= 0 && ns.y >= 0)
                         nbrs[cnt++] = ns;
                 }
             }
@@ -213,9 +267,67 @@ static int get_neighbors(const Maze *m, State s, int max_coord,
     return cnt;
 }
 
+/* --- IDDFS --- */
+
+/*
+ * DFS context passed through recursive calls.
+ */
+typedef struct {
+    const Maze *m;
+    State goal;
+    TT *tt;
+    State *path_stack;    /* path_stack[depth] = state at that depth */
+    int max_nbrs;
+    int found;            /* 1 if goal was found */
+} DFSCtx;
+
+/*
+ * dfs -- depth-limited DFS with transposition table pruning.
+ *
+ * Returns 1 if goal was found at or below this depth, 0 otherwise.
+ */
+static int dfs(DFSCtx *ctx, State cur, int depth, int depth_limit) {
+    if (state_eq(cur, ctx->goal)) {
+        ctx->path_stack[depth] = cur;
+        ctx->found = 1;
+        return 1;
+    }
+    if (depth >= depth_limit)
+        return 0;
+
+    ctx->path_stack[depth] = cur;
+
+    State *nbrs = malloc(ctx->max_nbrs * sizeof(State));
+    int nn = get_neighbors(ctx->m, cur, nbrs);
+
+    for (int i = 0; i < nn; i++) {
+        if (!tt_update(ctx->tt, nbrs[i], depth + 1)) continue;
+        if (dfs(ctx, nbrs[i], depth + 1, depth_limit)) {
+            free(nbrs);
+            return 1;
+        }
+    }
+    free(nbrs);
+    return 0;
+}
+
 /* --- Public API --- */
 
-int solve(const Maze *m, int max_coord, State **path_out, int *path_len_out) {
+/*
+ * solve -- IDDFS from start (0,1,E,0) to goal (0,1,E,1).
+ *
+ * Algorithm:
+ *   1. Initialize transposition table (cleared each iteration).
+ *   2. For depth_limit = 0, 1, 2, ..., MAX_DEPTH:
+ *      a. Clear TT and run DFS with TT pruning (within-iteration).
+ *      b. If goal found: extract path from DFS stack, return.
+ *      c. If TT count equals previous iteration's count: search space
+ *         exhausted, no path exists. Break early.
+ *   3. Return -1 if no path found.
+ *
+ * Returns path length (edges) or -1 if no path found.
+ */
+int solve(const Maze *m, State **path_out, int *path_len_out) {
     if (path_out)     *path_out = NULL;
     if (path_len_out) *path_len_out = 0;
     if (m->nterm < 2) return -1;
@@ -223,78 +335,66 @@ int solve(const Maze *m, int max_coord, State **path_out, int *path_len_out) {
     State start = {0, 1, CDIR_E, 0};
     State goal  = {0, 1, CDIR_E, 1};
 
-    BFS b;
-    bfs_init(&b);
+    TT tt;
+    tt_init(&tt);
 
-    /* Queue (index-based, not circular) */
-    int q_cap = 4096;
-    int q_head = 0, q_tail = 0;
-    int *queue = malloc(q_cap * sizeof(int));
-
-    /* Insert start */
-    int si = bfs_insert(&b, start, -1);
-    queue[q_tail++] = si;
-
-    int goal_idx = -1;
     int max_nbrs = 8 * m->nterm;
-    State *nbrs = malloc(max_nbrs * sizeof(State));
+    State *path_stack = malloc((MAX_DEPTH + 1) * sizeof(State));
 
-    while (q_head < q_tail) {
-        int ci = queue[q_head++];
-        State cur = b.vis[ci].state;
+    DFSCtx ctx;
+    ctx.m = m;
+    ctx.goal = goal;
+    ctx.tt = &tt;
+    ctx.path_stack = path_stack;
+    ctx.max_nbrs = max_nbrs;
+    ctx.found = 0;
 
-        int nn = get_neighbors(m, cur, max_coord, nbrs);
-        for (int i = 0; i < nn; i++) {
-            if (bfs_find(&b, nbrs[i]) >= 0)
-                continue;
+    int result = -1;
+    int last_count = 0;
 
-            int ni = bfs_insert(&b, nbrs[i], ci);
+    for (int depth_limit = 0; depth_limit <= MAX_DEPTH; depth_limit++) {
+        /* Clear TT for this iteration (fresh exploration at new depth limit) */
+        tt_clear(&tt);
+        tt_update(&tt, start, 0);
 
-            if (q_tail >= q_cap) {
-                q_cap *= 2;
-                queue = realloc(queue, q_cap * sizeof(int));
+        if (dfs(&ctx, start, 0, depth_limit)) {
+            /* Goal found: extract path from DFS stack */
+            int path_len = depth_limit + 1;
+            for (int d = 0; d <= depth_limit; d++) {
+                if (state_eq(ctx.path_stack[d], goal)) {
+                    path_len = d + 1;
+                    break;
+                }
             }
-            queue[q_tail++] = ni;
 
-            if (state_eq(nbrs[i], goal)) {
-                goal_idx = ni;
-                goto done;
+            if (path_out) {
+                State *path = malloc(path_len * sizeof(State));
+                memcpy(path, path_stack, path_len * sizeof(State));
+                *path_out = path;
             }
+            if (path_len_out) *path_len_out = path_len;
+            result = path_len - 1;
+            break;
         }
+
+        /* Early termination: no new states discovered vs previous iteration */
+        if (tt.count == last_count)
+            break;
+        last_count = tt.count;
     }
 
-done:
-    free(nbrs);
-    free(queue);
-
-    if (goal_idx < 0) {
-        bfs_free(&b);
-        return -1;
-    }
-
-    /* Reconstruct path */
-    int path_len = 0;
-    for (int i = goal_idx; i >= 0; i = b.vis[i].parent)
-        path_len++;
-
-    if (path_out) {
-        State *path = malloc(path_len * sizeof(State));
-        int j = path_len - 1;
-        for (int i = goal_idx; i >= 0; i = b.vis[i].parent)
-            path[j--] = b.vis[i].state;
-        *path_out = path;
-    }
-    if (path_len_out) *path_len_out = path_len;
-
-    bfs_free(&b);
-    return path_len - 1;  /* number of edges */
+    free(path_stack);
+    tt_free(&tt);
+    return result;
 }
 
+/* state_print -- print a state in compact "(x,y,Dir Idx)" format. */
 void state_print(State s) {
     printf("(%d,%d,%s%d)", s.x, s.y,
            s.dir == CDIR_E ? "E" : "N", s.idx);
 }
 
+/* path_print -- print the full path as "state0 -> state1 -> ... -> stateN". */
 void path_print(const State *path, int path_len) {
     for (int i = 0; i < path_len; i++) {
         if (i > 0) printf(" -> ");
@@ -303,9 +403,17 @@ void path_print(const State *path, int path_len) {
     printf("\n");
 }
 
+/*
+ * path_print_grid -- display a 2D grid of (x,y) positions visited by the path.
+ *
+ * Each cell shows comma-separated step numbers for states at that position.
+ * Cells not visited by the path show ".".
+ * The grid is printed with y decreasing (top = high y).
+ */
 void path_print_grid(const State *path, int path_len) {
     if (path_len == 0) return;
 
+    /* Find bounding box of all path positions */
     int min_x = path[0].x, max_x = path[0].x;
     int min_y = path[0].y, max_y = path[0].y;
     for (int i = 1; i < path_len; i++) {
@@ -315,13 +423,14 @@ void path_print_grid(const State *path, int path_len) {
         if (path[i].y > max_y) max_y = path[i].y;
     }
 
-    /* Determine column widths */
     int cols = max_x - min_x + 1;
-    int *col_w = calloc(cols, sizeof(int));
-    for (int c = 0; c < cols; c++) col_w[c] = 4; /* minimum */
-
-    /* Pre-build cell strings */
     int rows = max_y - min_y + 1;
+
+    /* Determine column widths based on content */
+    int *col_w = calloc(cols, sizeof(int));
+    for (int c = 0; c < cols; c++) col_w[c] = 4;
+
+    /* Build cell content strings (step numbers at each position) */
     char **cells = calloc(rows * cols, sizeof(char *));
     for (int y = min_y; y <= max_y; y++) {
         for (int x = min_x; x <= max_x; x++) {
@@ -344,13 +453,13 @@ void path_print_grid(const State *path, int path_len) {
 
     printf("Grid (step numbers at each position):\n");
 
-    /* Header */
+    /* Column header: x coordinates */
     printf("y\\x  ");
     for (int x = min_x; x <= max_x; x++)
         printf("%-*d", col_w[x - min_x], x);
     printf("\n");
 
-    /* Rows top-to-bottom (high y first) */
+    /* Rows from high y to low y */
     for (int y = max_y; y >= min_y; y--) {
         printf("%-4d ", y);
         int r = y - min_y;
@@ -366,10 +475,27 @@ void path_print_grid(const State *path, int path_len) {
 
 /* --- Verbose path with transition annotations --- */
 
+/* Direction name strings indexed by TDIR_* constants. */
 static const char *tdir_str[] = {"E", "W", "N", "S"};
 
+/*
+ * BlockTerm -- a (block position, terminal direction, terminal index) triple.
+ * Used internally to find which block and port connect two consecutive path states.
+ */
 typedef struct { int bx, by, td, ti; } BlockTerm;
 
+/*
+ * path_print_verbose -- print annotated path transitions.
+ *
+ * For each consecutive pair of states (s1, s2) in the path:
+ *   1. Enumerate the 2 block-terminal pairs for s1 (the blocks sharing s1's point).
+ *   2. Enumerate the 2 block-terminal pairs for s2.
+ *   3. Find a common block where the port src_terminal -> dst_terminal exists.
+ *   4. Print the transition with block type, position, and port name.
+ *
+ * Block types are determined by position:
+ *   (bx>0, by>0) = "normal",  (0, by>0) = "nx",  (bx>0, 0) = "ny"
+ */
 void path_print_verbose(const Maze *m, const State *path, int path_len) {
     if (path_len == 0) return;
 
@@ -379,7 +505,6 @@ void path_print_verbose(const Maze *m, const State *path, int path_len) {
         State s1 = path[step];
         State s2 = path[step + 1];
 
-        /* Build block-terminal pairs for s1 and s2 */
         BlockTerm p1[2], p2[2];
         int n1 = 0, n2 = 0;
 
@@ -398,7 +523,6 @@ void path_print_verbose(const Maze *m, const State *path, int path_len) {
             p2[n2++] = (BlockTerm){s2.x, s2.y+1, TDIR_S, s2.idx};
         }
 
-        /* Find common block with a valid port */
         int found = 0;
         for (int i = 0; i < n1 && !found; i++) {
             for (int j = 0; j < n2 && !found; j++) {
