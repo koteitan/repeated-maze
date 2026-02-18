@@ -25,6 +25,10 @@ canvas { display: block; }
 <h1>Repeated Maze Visualizer</h1>
 <div class="fields">
   <div class="field">
+    <label for="nterm-input">nterm:</label>
+    <input id="nterm-input" type="number" min="2" value="2" style="width:60px; font-size:14px; padding:4px;">
+  </div>
+  <div class="field">
     <label for="maze-input">Maze:</label>
     <textarea id="maze-input">normal: E0->S0, E1->E0, W0->E0, W1->W0, W1->N1, W1->S1, N0->E1, N0->S1, N1->W0, N1->W1, S0->W0, S1->E0, S1->E1, S1->W0; nx: (none); ny: N0->N1</textarea>
   </div>
@@ -88,7 +92,8 @@ function parsePath(text) {
 }
 
 function detectNterm(maze, path) {
-  let nterm = 2;
+  let nterm = parseInt(document.getElementById('nterm-input').value) || 2;
+  if (nterm < 2) nterm = 2;
   for (const ports of [maze.normal, maze.nx, maze.ny])
     for (const p of ports)
       nterm = Math.max(nterm, p.src.idx + 1, p.dst.idx + 1);
@@ -186,7 +191,7 @@ function draw() {
       maxY = Math.max(maxY, s.y, s.y + (s.dir === 'N' ? 1 : 0));
     }
   } else {
-    minX = 0; maxX = 2; minY = 0; maxY = 2;
+    minX = 0; maxX = 3; minY = 0; maxY = 3;
   }
 
   const cols = maxX - minX + 1;
@@ -271,7 +276,7 @@ function draw() {
       drawCurvedArrow(ctx,
         bp.x + from.x, bp.y + from.y,
         bp.x + to.x, bp.y + to.y,
-        30 * S, '#000', 2 * S);
+        -30 * S, '#000', 2 * S);
     }
   }
 
