@@ -174,6 +174,8 @@ QMResult quizmaster_search(int nterm, int min_aport, int max_aport, int max_len)
 
     Maze *best = NULL;
     int best_len = 0;
+    State *best_path = NULL;
+    int best_path_len = 0;
     uint64_t total_evaluated = 0;
     uint64_t total_solved = 0;
     uint64_t total_pruned = 0;
@@ -198,7 +200,9 @@ QMResult quizmaster_search(int nterm, int min_aport, int max_aport, int max_len)
 
             /* Pruning: abstract terminal reachability */
             if (has_abstract_path(m)) {
-                int len = solve(m, NULL, NULL);
+                State *tmp_path = NULL;
+                int tmp_path_len = 0;
+                int len = solve(m, &tmp_path, &tmp_path_len);
                 if (len < 0) len = 0;
                 total_solved++;
 
@@ -206,15 +210,23 @@ QMResult quizmaster_search(int nterm, int min_aport, int max_aport, int max_len)
                     best_len = len;
                     if (best) maze_destroy(best);
                     best = maze_clone(m);
+                    free(best_path);
+                    best_path = tmp_path;
+                    best_path_len = tmp_path_len;
+                    tmp_path = NULL;
                     fprintf(stderr, "[k=%d, combo %llu] new best: length %d\n",
                             k, (unsigned long long)combo_count, best_len);
                     fprintf(stderr, "  ");
                     maze_fprint(stderr, best);
+                    fprintf(stderr, "  ");
+                    path_fprint(stderr, best_path, best_path_len);
                     if (max_len > 0 && best_len >= max_len) {
                         total_evaluated++;
                         combo_count++;
                         goto search_done;
                     }
+                } else {
+                    free(tmp_path);
                 }
             } else {
                 total_pruned++;
@@ -256,15 +268,11 @@ search_done:
             (unsigned long long)total_pruned,
             best_len);
 
-    /* Re-solve the best maze to obtain the full path */
     if (best) {
-        State *path = NULL;
-        int path_len = 0;
-        solve(best, &path, &path_len);
         result.best_maze     = best;
         result.best_length   = best_len;
-        result.best_path     = path;
-        result.best_path_len = path_len;
+        result.best_path     = best_path;
+        result.best_path_len = best_path_len;
     }
 
     maze_destroy(m);
@@ -315,6 +323,8 @@ QMResult quizmaster_random_search(int nterm, int min_aport, int max_aport,
 
     Maze *best = NULL;
     int best_len = 0;
+    State *best_path = NULL;
+    int best_path_len = 0;
     uint64_t total_evaluated = 0;
     uint64_t total_solved = 0;
     uint64_t total_pruned = 0;
@@ -343,7 +353,9 @@ QMResult quizmaster_random_search(int nterm, int min_aport, int max_aport,
 
         /* Pruning: abstract terminal reachability */
         if (has_abstract_path(m)) {
-            int len = solve(m, NULL, NULL);
+            State *tmp_path = NULL;
+            int tmp_path_len = 0;
+            int len = solve(m, &tmp_path, &tmp_path_len);
             if (len < 0) len = 0;
             total_solved++;
 
@@ -351,12 +363,20 @@ QMResult quizmaster_random_search(int nterm, int min_aport, int max_aport,
                 best_len = len;
                 if (best) maze_destroy(best);
                 best = maze_clone(m);
+                free(best_path);
+                best_path = tmp_path;
+                best_path_len = tmp_path_len;
+                tmp_path = NULL;
                 fprintf(stderr, "[iter %llu, k=%d] new best: length %d\n",
                         (unsigned long long)total_evaluated, k, best_len);
                 fprintf(stderr, "  ");
                 maze_fprint(stderr, best);
+                fprintf(stderr, "  ");
+                path_fprint(stderr, best_path, best_path_len);
                 if (max_len > 0 && best_len >= max_len)
                     break;
+            } else {
+                free(tmp_path);
             }
         } else {
             total_pruned++;
@@ -386,15 +406,11 @@ QMResult quizmaster_random_search(int nterm, int min_aport, int max_aport,
             (unsigned long long)total_pruned,
             best_len);
 
-    /* Re-solve the best maze to obtain the full path */
     if (best) {
-        State *path = NULL;
-        int path_len = 0;
-        solve(best, &path, &path_len);
         result.best_maze     = best;
         result.best_length   = best_len;
-        result.best_path     = path;
-        result.best_path_len = path_len;
+        result.best_path     = best_path;
+        result.best_path_len = best_path_len;
     }
 
     maze_destroy(m);

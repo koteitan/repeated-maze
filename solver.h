@@ -70,6 +70,9 @@ void state_print(State s);
 /* path_print -- print a path as "(x,y,E0) -> (x,y,N1) -> ..." to stdout. */
 void path_print(const State *path, int path_len);
 
+/* path_fprint -- print a path to the given FILE stream. */
+void path_fprint(FILE *fp, const State *path, int path_len);
+
 /*
  * path_print_grid -- print a 2D grid showing which (x,y) positions
  * the path visits and at which step numbers.

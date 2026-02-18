@@ -394,13 +394,19 @@ void state_print(State s) {
            s.dir == CDIR_E ? "E" : "N", s.idx);
 }
 
+/* path_fprint -- print the full path to a FILE stream. */
+void path_fprint(FILE *fp, const State *path, int path_len) {
+    for (int i = 0; i < path_len; i++) {
+        if (i > 0) fprintf(fp, " -> ");
+        fprintf(fp, "(%d,%d,%s%d)", path[i].x, path[i].y,
+                path[i].dir == CDIR_E ? "E" : "N", path[i].idx);
+    }
+    fprintf(fp, "\n");
+}
+
 /* path_print -- print the full path as "state0 -> state1 -> ... -> stateN". */
 void path_print(const State *path, int path_len) {
-    for (int i = 0; i < path_len; i++) {
-        if (i > 0) printf(" -> ");
-        state_print(path[i]);
-    }
-    printf("\n");
+    path_fprint(stdout, path, path_len);
 }
 
 /*
