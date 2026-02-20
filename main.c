@@ -16,6 +16,7 @@
  * Usage:
  *   repeated-maze solve <nterm> <maze_string>
  *   repeated-maze search <nterm> --max-aport <N>
+ *   repeated-maze norm <nterm> <maze_string>
  *   repeated-maze --version | -v
  */
 #include <stdio.h>
@@ -25,7 +26,7 @@
 #include "solver.h"
 #include "quizmaster.h"
 
-#define VERSION "0.1.5"
+#define VERSION "0.1.6"
 
 /*
  * usage -- print usage information to stderr and exit with code 1.
@@ -34,7 +35,8 @@ static void usage(void) {
     fprintf(stderr,
         "Usage:\n"
         "  repeated-maze solve <nterm> <maze_string>\n"
-        "  repeated-maze search <nterm> --max-aport <N> [--min-aport <N>] [--max-len <N>] [--random <seed>]\n");
+        "  repeated-maze search <nterm> --max-aport <N> [--min-aport <N>] [--max-len <N>] [--random <seed>]\n"
+        "  repeated-maze norm <nterm> <maze_string>\n");
     exit(1);
 }
 
@@ -156,6 +158,39 @@ static int cmd_search(int argc, char **argv) {
 }
 
 /*
+ * cmd_norm -- handle the "norm" subcommand.
+ *
+ * Parses a maze from the command-line string, normalizes terminal indices,
+ * and prints the normalized maze.
+ */
+static int cmd_norm(int argc, char **argv) {
+    if (argc < 4) usage();
+    int nterm = atoi(argv[2]);
+    if (nterm < 2) {
+        fprintf(stderr, "nterm must be >= 2\n");
+        return 1;
+    }
+    const char *maze_str = argv[3];
+
+    Maze *m = maze_parse(nterm, maze_str);
+    if (!m) {
+        fprintf(stderr, "Failed to parse maze string\n");
+        return 1;
+    }
+
+    printf("Original: ");
+    maze_print(m);
+
+    maze_normalize(m);
+
+    printf("Normalized: ");
+    maze_print(m);
+
+    maze_destroy(m);
+    return 0;
+}
+
+/*
  * main -- program entry point. Dispatches to subcommands.
  */
 int main(int argc, char **argv) {
@@ -169,6 +204,8 @@ int main(int argc, char **argv) {
         return cmd_solve(argc, argv);
     if (strcmp(argv[1], "search") == 0)
         return cmd_search(argc, argv);
+    if (strcmp(argv[1], "norm") == 0)
+        return cmd_norm(argc, argv);
 
     usage();
     return 1;

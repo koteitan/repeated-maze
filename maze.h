@@ -157,4 +157,16 @@ void  maze_print_table(const Maze *m);
  */
 Maze *maze_parse(int nterm, const char *str);
 
+/*
+ * maze_normalize -- normalize terminal indices in-place.
+ *
+ * The maze has two independent index symmetries:
+ *   - E/W indices: 0 and 1 are fixed (start/goal), indices 2+ can be permuted
+ *   - N/S indices: all indices can be permuted freely
+ *
+ * Normalization assigns indices by first-appearance order when scanning
+ * ports in flat index order (normal ports, then nx, then ny).
+ */
+void maze_normalize(Maze *m);
+
 #endif

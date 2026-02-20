@@ -284,6 +284,117 @@ void maze_print_table(const Maze *m) {
     }
 }
 
+/* --- Normalize --- */
+
+/*
+ * maze_normalize -- normalize terminal indices by first-appearance order.
+ *
+ * Two independent permutations are applied:
+ *   ew_map: E/W terminal indices (0 and 1 fixed, rest by first appearance)
+ *   ns_map: N/S terminal indices (all by first appearance)
+ *
+ * Ports are scanned in flat index order: normal block ports first (by
+ * src * n4 + dst), then nx ports (by src * n + dst), then ny ports.
+ * The first unseen index encountered gets the next available canonical index.
+ */
+void maze_normalize(Maze *m) {
+    int n = m->nterm;
+    if (n < 2) return;
+    int n4 = 4 * n;
+
+    /* Build index mappings via first-appearance scan */
+    int *ew_map = malloc(n * sizeof(int));
+    int *ns_map = malloc(n * sizeof(int));
+    memset(ew_map, -1, n * sizeof(int));
+    memset(ns_map, -1, n * sizeof(int));
+
+    /* E/W: indices 0 and 1 are fixed (start and goal terminals) */
+    ew_map[0] = 0;
+    ew_map[1] = 1;
+    int next_ew = 2;
+    int next_ns = 0;
+
+    /* Scan normal ports in flat index order */
+    for (int src = 0; src < n4; src++) {
+        for (int dst = 0; dst < n4; dst++) {
+            if (!m->normal_ports[src * n4 + dst]) continue;
+            int sd = src / n, si = src % n;
+            int dd = dst / n, di = dst % n;
+            if (sd < 2) { if (ew_map[si] == -1) ew_map[si] = next_ew++; }
+            else        { if (ns_map[si] == -1) ns_map[si] = next_ns++; }
+            if (dd < 2) { if (ew_map[di] == -1) ew_map[di] = next_ew++; }
+            else        { if (ns_map[di] == -1) ns_map[di] = next_ns++; }
+        }
+    }
+
+    /* Scan nx ports (E[si] -> E[di]) */
+    for (int si = 0; si < n; si++)
+        for (int di = 0; di < n; di++)
+            if (si != di && maze_nx_port(m, si, di)) {
+                if (ew_map[si] == -1) ew_map[si] = next_ew++;
+                if (ew_map[di] == -1) ew_map[di] = next_ew++;
+            }
+
+    /* Scan ny ports (N[si] -> N[di]) */
+    for (int si = 0; si < n; si++)
+        for (int di = 0; di < n; di++)
+            if (si != di && maze_ny_port(m, si, di)) {
+                if (ns_map[si] == -1) ns_map[si] = next_ns++;
+                if (ns_map[di] == -1) ns_map[di] = next_ns++;
+            }
+
+    /* Fill remaining unmapped indices */
+    for (int i = 0; i < n; i++) {
+        if (ew_map[i] == -1) ew_map[i] = next_ew++;
+        if (ns_map[i] == -1) ns_map[i] = next_ns++;
+    }
+
+    /* Apply mapping to create new port arrays */
+    uint8_t *new_normal = calloc(m->normal_nports, 1);
+    uint8_t *new_nx = calloc(m->nx_nports > 0 ? m->nx_nports : 1, 1);
+    uint8_t *new_ny = calloc(m->ny_nports > 0 ? m->ny_nports : 1, 1);
+
+    for (int src = 0; src < n4; src++) {
+        for (int dst = 0; dst < n4; dst++) {
+            if (!m->normal_ports[src * n4 + dst]) continue;
+            int sd = src / n, si = src % n;
+            int dd = dst / n, di = dst % n;
+            int nsi = (sd < 2) ? ew_map[si] : ns_map[si];
+            int ndi = (dd < 2) ? ew_map[di] : ns_map[di];
+            int new_src = sd * n + nsi;
+            int new_dst = dd * n + ndi;
+            new_normal[new_src * n4 + new_dst] = 1;
+        }
+    }
+
+    for (int si = 0; si < n; si++)
+        for (int di = 0; di < n; di++)
+            if (si != di && maze_nx_port(m, si, di)) {
+                int nsi = ew_map[si], ndi = ew_map[di];
+                int adj = ndi < nsi ? ndi : ndi - 1;
+                new_nx[nsi * (n - 1) + adj] = 1;
+            }
+
+    for (int si = 0; si < n; si++)
+        for (int di = 0; di < n; di++)
+            if (si != di && maze_ny_port(m, si, di)) {
+                int nsi = ns_map[si], ndi = ns_map[di];
+                int adj = ndi < nsi ? ndi : ndi - 1;
+                new_ny[nsi * (n - 1) + adj] = 1;
+            }
+
+    /* Replace port arrays */
+    free(m->normal_ports);
+    free(m->nx_ports);
+    free(m->ny_ports);
+    m->normal_ports = new_normal;
+    m->nx_ports = new_nx;
+    m->ny_ports = new_ny;
+
+    free(ew_map);
+    free(ns_map);
+}
+
 /* --- Parse helpers --- */
 
 /* parse_dir -- convert a direction character to TDIR_* constant, or -1. */
