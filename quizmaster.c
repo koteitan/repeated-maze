@@ -179,6 +179,7 @@ QMResult quizmaster_search(int nterm, int min_aport, int max_aport, int max_len)
     uint64_t total_evaluated = 0;
     uint64_t total_solved = 0;
     uint64_t total_pruned = 0;
+    uint64_t total_norm_pruned = 0;
 
     int *combo = malloc(ncand * sizeof(int));
 
@@ -198,7 +199,13 @@ QMResult quizmaster_search(int nterm, int min_aport, int max_aport, int max_len)
             for (int i = 0; i < k; i++)
                 maze_set_port(m, candidates[combo[i]], 1);
 
-            /* Pruning: abstract terminal reachability */
+            /* Pruning 1: normalization -- skip non-canonical forms */
+            if (!maze_is_normalized(m)) {
+                total_norm_pruned++;
+                goto next_combo;
+            }
+
+            /* Pruning 2: abstract terminal reachability */
             if (has_abstract_path(m)) {
                 State *tmp_path = NULL;
                 int tmp_path_len = 0;
@@ -232,19 +239,21 @@ QMResult quizmaster_search(int nterm, int min_aport, int max_aport, int max_len)
                 total_pruned++;
             }
 
+        next_combo:
             total_evaluated++;
             combo_count++;
 
             /* Progress reporting every 10000 mazes */
             if (combo_count % 10000 == 0) {
-                fprintf(stderr, "[k=%d] progress: %llu/%llu (%.1f%%) best=%d solved=%llu pruned=%llu\n",
+                fprintf(stderr, "[k=%d] progress: %llu/%llu (%.1f%%) best=%d solved=%llu pruned=%llu norm_pruned=%llu\n",
                         k,
                         (unsigned long long)combo_count,
                         (unsigned long long)ncombs,
                         (double)combo_count / (double)ncombs * 100.0,
                         best_len,
                         (unsigned long long)total_solved,
-                        (unsigned long long)total_pruned);
+                        (unsigned long long)total_pruned,
+                        (unsigned long long)total_norm_pruned);
             }
 
             /* Generate next combination in lexicographic order */
@@ -262,10 +271,11 @@ search_done:
     free(combo);
     free(candidates);
 
-    fprintf(stderr, "Search complete: %llu evaluated, %llu solved, %llu pruned, best length = %d\n",
+    fprintf(stderr, "Search complete: %llu evaluated, %llu solved, %llu pruned, %llu norm_pruned, best length = %d\n",
             (unsigned long long)total_evaluated,
             (unsigned long long)total_solved,
             (unsigned long long)total_pruned,
+            (unsigned long long)total_norm_pruned,
             best_len);
 
     if (best) {

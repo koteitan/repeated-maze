@@ -169,4 +169,12 @@ Maze *maze_parse(int nterm, const char *str);
  */
 void maze_normalize(Maze *m);
 
+/*
+ * maze_is_normalized -- return 1 if the maze is already in canonical form.
+ *
+ * Clones the maze, normalizes the clone, and compares port arrays.
+ * Returns 1 if normalize(m) == m, 0 otherwise.
+ */
+int maze_is_normalized(const Maze *m);
+
 #endif

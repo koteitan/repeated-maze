@@ -395,6 +395,20 @@ void maze_normalize(Maze *m) {
     free(ns_map);
 }
 
+/*
+ * maze_is_normalized -- check if a maze is already in canonical form.
+ * Clones and normalizes, then compares all port arrays.
+ */
+int maze_is_normalized(const Maze *m) {
+    Maze *norm = maze_clone(m);
+    maze_normalize(norm);
+    int eq = (memcmp(m->normal_ports, norm->normal_ports, m->normal_nports) == 0 &&
+              memcmp(m->nx_ports, norm->nx_ports, m->nx_nports) == 0 &&
+              memcmp(m->ny_ports, norm->ny_ports, m->ny_nports) == 0);
+    maze_destroy(norm);
+    return eq;
+}
+
 /* --- Parse helpers --- */
 
 /* parse_dir -- convert a direction character to TDIR_* constant, or -1. */
