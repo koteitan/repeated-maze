@@ -173,6 +173,27 @@ function drawCurvedArrow(ctx, x1, y1, x2, y2, bulge, color, lw) {
   ctx.restore();
 }
 
+function drawCurvedArrowCP(ctx, x1, y1, x2, y2, cpx, cpy, color, lw) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = lw;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.quadraticCurveTo(cpx, cpy, x2, y2);
+  ctx.stroke();
+  const hl = 12 * lw;
+  const tx = 2 * (x2 - cpx), ty = 2 * (y2 - cpy);
+  const angle = Math.atan2(ty, tx);
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - hl * Math.cos(angle - 0.15), y2 - hl * Math.sin(angle - 0.15));
+  ctx.lineTo(x2 - hl * Math.cos(angle + 0.15), y2 - hl * Math.sin(angle + 0.15));
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
 /* ---- Main draw ---- */
 
 function draw() {
@@ -266,31 +287,33 @@ function draw() {
     }
   }
 
-  /* nx port arrows on (0,y) blocks only */
+  /* nx port arrows on (0,y) blocks only -- always bulge left (negative x) */
   for (let by = minY; by <= maxY; by++) {
     if (by < 1) continue;
     const bp = bpos(0, by);
     for (const port of maze.nx) {
       const from = termLocalPos('E', port.src.idx, nterm, CELL);
       const to = termLocalPos('E', port.dst.idx, nterm, CELL);
-      drawCurvedArrow(ctx,
-        bp.x + from.x, bp.y + from.y,
-        bp.x + to.x, bp.y + to.y,
-        -30 * S, '#000', 2 * S);
+      const fx = bp.x + from.x, fy = bp.y + from.y;
+      const tx = bp.x + to.x, ty = bp.y + to.y;
+      const mx = (fx + tx) / 2, my = (fy + ty) / 2;
+      const cpx = mx - 30 * S, cpy = my;
+      drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
     }
   }
 
-  /* ny port arrows on (x,0) blocks only */
+  /* ny port arrows on (x,0) blocks only -- always bulge down (positive y) */
   for (let bx = minX; bx <= maxX; bx++) {
     if (bx < 1) continue;
     const bp = bpos(bx, 0);
     for (const port of maze.ny) {
       const from = termLocalPos('N', port.src.idx, nterm, CELL);
       const to = termLocalPos('N', port.dst.idx, nterm, CELL);
-      drawCurvedArrow(ctx,
-        bp.x + from.x, bp.y + from.y,
-        bp.x + to.x, bp.y + to.y,
-        30 * S, '#000', 2 * S);
+      const fx = bp.x + from.x, fy = bp.y + from.y;
+      const tx = bp.x + to.x, ty = bp.y + to.y;
+      const mx = (fx + tx) / 2, my = (fy + ty) / 2;
+      const cpx = mx, cpy = my + 30 * S;
+      drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
     }
   }
 
