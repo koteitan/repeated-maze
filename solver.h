@@ -64,6 +64,40 @@ typedef struct {
  */
 int solve(const Maze *m, State **path_out, int *path_len_out);
 
+/*
+ * solve_from -- find the shortest path, starting IDDFS from a given minimum depth.
+ *
+ * Same as solve(), but skips IDDFS iterations for depth_limit < min_depth.
+ * Use this when a lower bound on the shortest path length is known
+ * (e.g., in top-down search where removing a port can only increase path length).
+ *
+ * Parameters:
+ *   m            -- the maze to solve
+ *   min_depth    -- minimum depth_limit for IDDFS (skips depths 0..min_depth-1)
+ *   path_out     -- if non-NULL, receives a malloc'd array of states along the path
+ *   path_len_out -- if non-NULL, receives the number of states in the path
+ *
+ * Returns:
+ *   The path length (>= min_depth) or -1 if no path exists.
+ */
+int solve_from(const Maze *m, int min_depth, State **path_out, int *path_len_out);
+
+/*
+ * solve_bfs -- find the shortest path using BFS.
+ *
+ * Each state is visited at most once. More efficient than IDDFS for longer
+ * paths since it avoids re-exploring shallower depths.
+ */
+int solve_bfs(const Maze *m, State **path_out, int *path_len_out);
+
+/*
+ * solve_bfs_len -- lightweight BFS returning only the path length.
+ *
+ * Skips parent tracking and path reconstruction. Use when only the
+ * shortest path length is needed, not the actual path.
+ */
+int solve_bfs_len(const Maze *m);
+
 /* state_print -- print a single state as "(x,y,E0)" or "(x,y,N1)" to stdout. */
 void state_print(State s);
 

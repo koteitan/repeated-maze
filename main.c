@@ -26,7 +26,7 @@
 #include "solver.h"
 #include "quizmaster.h"
 
-#define VERSION "0.1.8"
+#define VERSION "0.1.9"
 
 /*
  * usage -- print usage information to stderr and exit with code 1.
@@ -34,9 +34,9 @@
 static void usage(void) {
     fprintf(stderr,
         "Usage:\n"
-        "  repeated-maze solve <nterm> <maze_string>\n"
-        "  repeated-maze search <nterm> --max-aport <N> [--min-aport <N>] [--max-len <N>] [--random <seed>]\n"
-        "  repeated-maze search <nterm> --topdown [--max-len <N>]\n"
+        "  repeated-maze solve <nterm> <maze_string> [--bfs]\n"
+        "  repeated-maze search <nterm> --max-aport <N> [--min-aport <N>] [--max-len <N>] [--random <seed>] [--bfs]\n"
+        "  repeated-maze search <nterm> --topdown [--max-len <N>] [--bfs]\n"
         "  repeated-maze norm <nterm> <maze_string>\n");
     exit(1);
 }
@@ -55,6 +55,11 @@ static int cmd_solve(int argc, char **argv) {
         return 1;
     }
     const char *maze_str = argv[3];
+    int use_bfs = 0;
+    for (int i = 4; i < argc; i++) {
+        if (strcmp(argv[i], "--bfs") == 0)
+            use_bfs = 1;
+    }
 
     Maze *m = maze_parse(nterm, maze_str);
     if (!m) {
@@ -67,7 +72,8 @@ static int cmd_solve(int argc, char **argv) {
 
     State *path = NULL;
     int path_len = 0;
-    int result = solve(m, &path, &path_len);
+    int result = use_bfs ? solve_bfs(m, &path, &path_len)
+                         : solve(m, &path, &path_len);
 
     if (result < 0) {
         printf("No path found\n");
@@ -107,6 +113,7 @@ static int cmd_search(int argc, char **argv) {
     int max_len = 0;
     int random_seed = -1;
     int topdown = 0;
+    int use_bfs = 0;
 
     for (int i = 3; i < argc; i++) {
         if (strcmp(argv[i], "--max-aport") == 0 && i + 1 < argc)
@@ -119,23 +126,25 @@ static int cmd_search(int argc, char **argv) {
             random_seed = atoi(argv[++i]);
         else if (strcmp(argv[i], "--topdown") == 0)
             topdown = 1;
+        else if (strcmp(argv[i], "--bfs") == 0)
+            use_bfs = 1;
     }
 
     QMResult r;
     if (topdown) {
-        printf("Top-down search: nterm=%d max_len=%d\n", nterm, max_len);
-        r = quizmaster_topdown_search(nterm, max_len);
+        printf("Top-down search: nterm=%d max_len=%d bfs=%d\n", nterm, max_len, use_bfs);
+        r = quizmaster_topdown_search(nterm, max_len, use_bfs);
     } else if (random_seed >= 0) {
         if (max_aport < 0) { fprintf(stderr, "Error: --max-aport <N> is required\n"); usage(); }
-        printf("Random search: nterm=%d min_aport=%d max_aport=%d max_len=%d seed=%d\n",
-               nterm, min_aport, max_aport, max_len, random_seed);
+        printf("Random search: nterm=%d min_aport=%d max_aport=%d max_len=%d seed=%d bfs=%d\n",
+               nterm, min_aport, max_aport, max_len, random_seed, use_bfs);
         r = quizmaster_random_search(nterm, min_aport, max_aport, max_len,
-                                     (unsigned int)random_seed);
+                                     (unsigned int)random_seed, use_bfs);
     } else {
         if (max_aport < 0) { fprintf(stderr, "Error: --max-aport <N> is required\n"); usage(); }
-        printf("Search: nterm=%d min_aport=%d max_aport=%d max_len=%d\n",
-               nterm, min_aport, max_aport, max_len);
-        r = quizmaster_search(nterm, min_aport, max_aport, max_len);
+        printf("Search: nterm=%d min_aport=%d max_aport=%d max_len=%d bfs=%d\n",
+               nterm, min_aport, max_aport, max_len, use_bfs);
+        r = quizmaster_search(nterm, min_aport, max_aport, max_len, use_bfs);
     }
 
     if (r.best_maze) {

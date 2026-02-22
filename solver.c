@@ -277,6 +277,7 @@ typedef struct {
     State goal;
     TT *tt;
     State *path_stack;    /* path_stack[depth] = state at that depth */
+    State *nbrs_buf;      /* pre-allocated neighbor buffer, indexed by depth */
     int max_nbrs;
     int found;            /* 1 if goal was found */
 } DFSCtx;
@@ -297,17 +298,14 @@ static int dfs(DFSCtx *ctx, State cur, int depth, int depth_limit) {
 
     ctx->path_stack[depth] = cur;
 
-    State *nbrs = malloc(ctx->max_nbrs * sizeof(State));
+    State *nbrs = ctx->nbrs_buf + depth * ctx->max_nbrs;
     int nn = get_neighbors(ctx->m, cur, nbrs);
 
     for (int i = 0; i < nn; i++) {
         if (!tt_update(ctx->tt, nbrs[i], depth + 1)) continue;
-        if (dfs(ctx, nbrs[i], depth + 1, depth_limit)) {
-            free(nbrs);
+        if (dfs(ctx, nbrs[i], depth + 1, depth_limit))
             return 1;
-        }
     }
-    free(nbrs);
     return 0;
 }
 
@@ -340,12 +338,14 @@ int solve(const Maze *m, State **path_out, int *path_len_out) {
 
     int max_nbrs = 8 * m->nterm;
     State *path_stack = malloc((MAX_DEPTH + 1) * sizeof(State));
+    State *nbrs_buf = malloc((MAX_DEPTH + 1) * max_nbrs * sizeof(State));
 
     DFSCtx ctx;
     ctx.m = m;
     ctx.goal = goal;
     ctx.tt = &tt;
     ctx.path_stack = path_stack;
+    ctx.nbrs_buf = nbrs_buf;
     ctx.max_nbrs = max_nbrs;
     ctx.found = 0;
 
@@ -384,7 +384,219 @@ int solve(const Maze *m, State **path_out, int *path_len_out) {
     }
 
     free(path_stack);
+    free(nbrs_buf);
     tt_free(&tt);
+    return result;
+}
+
+/*
+ * solve_from -- IDDFS starting from min_depth.
+ *
+ * Skips depth_limit = 0, 1, ..., min_depth-1, which is safe when a lower
+ * bound on the shortest path length is known.
+ */
+int solve_from(const Maze *m, int min_depth, State **path_out, int *path_len_out) {
+    if (path_out)     *path_out = NULL;
+    if (path_len_out) *path_len_out = 0;
+    if (m->nterm < 2) return -1;
+    if (min_depth < 0) min_depth = 0;
+
+    State start = {0, 1, CDIR_E, 0};
+    State goal  = {0, 1, CDIR_E, 1};
+
+    TT tt;
+    tt_init(&tt);
+
+    int max_nbrs = 8 * m->nterm;
+    State *path_stack = malloc((MAX_DEPTH + 1) * sizeof(State));
+    State *nbrs_buf = malloc((MAX_DEPTH + 1) * max_nbrs * sizeof(State));
+
+    DFSCtx ctx;
+    ctx.m = m;
+    ctx.goal = goal;
+    ctx.tt = &tt;
+    ctx.path_stack = path_stack;
+    ctx.nbrs_buf = nbrs_buf;
+    ctx.max_nbrs = max_nbrs;
+    ctx.found = 0;
+
+    int result = -1;
+    int last_count = 0;
+
+    for (int depth_limit = min_depth; depth_limit <= MAX_DEPTH; depth_limit++) {
+        tt_clear(&tt);
+        tt_update(&tt, start, 0);
+
+        if (dfs(&ctx, start, 0, depth_limit)) {
+            int path_len = depth_limit + 1;
+            for (int d = 0; d <= depth_limit; d++) {
+                if (state_eq(ctx.path_stack[d], goal)) {
+                    path_len = d + 1;
+                    break;
+                }
+            }
+
+            if (path_out) {
+                State *path = malloc(path_len * sizeof(State));
+                memcpy(path, path_stack, path_len * sizeof(State));
+                *path_out = path;
+            }
+            if (path_len_out) *path_len_out = path_len;
+            result = path_len - 1;
+            break;
+        }
+
+        if (tt.count == last_count)
+            break;
+        last_count = tt.count;
+    }
+
+    free(path_stack);
+    free(nbrs_buf);
+    tt_free(&tt);
+    return result;
+}
+
+/* --- BFS Solver --- */
+
+/* BFS node for path reconstruction. */
+typedef struct {
+    State state;
+    int parent;  /* index in queue, -1 for start */
+} BFSNode;
+
+/*
+ * solve_bfs -- find the shortest path using BFS.
+ *
+ * Each state is visited at most once via a TT used as a visited set
+ * (tt_update with depth=0). Parent pointers enable path reconstruction.
+ */
+int solve_bfs(const Maze *m, State **path_out, int *path_len_out) {
+    if (path_out)     *path_out = NULL;
+    if (path_len_out) *path_len_out = 0;
+    if (m->nterm < 2) return -1;
+
+    State start = {0, 1, CDIR_E, 0};
+    State goal  = {0, 1, CDIR_E, 1};
+
+    TT visited;
+    tt_init(&visited);
+    tt_update(&visited, start, 0);
+
+    int max_nbrs = 8 * m->nterm;
+    State *nbrs = malloc(max_nbrs * sizeof(State));
+
+    int cap = 4096;
+    BFSNode *queue = malloc(cap * sizeof(BFSNode));
+    int head = 0, tail = 0;
+    queue[tail++] = (BFSNode){start, -1};
+
+    int result = -1;
+    int goal_idx = -1;
+
+    while (head < tail) {
+        State cur = queue[head].state;
+
+        if (state_eq(cur, goal)) {
+            goal_idx = head;
+            break;
+        }
+
+        int nn = get_neighbors(m, cur, nbrs);
+        for (int i = 0; i < nn; i++) {
+            if (!tt_update(&visited, nbrs[i], 0)) continue;
+            if (tail >= cap) {
+                cap *= 2;
+                queue = realloc(queue, cap * sizeof(BFSNode));
+            }
+            queue[tail++] = (BFSNode){nbrs[i], head};
+        }
+
+        head++;
+    }
+
+    if (goal_idx >= 0) {
+        /* Count path length by tracing parent pointers */
+        int depth = 0;
+        int idx = goal_idx;
+        while (idx >= 0) { depth++; idx = queue[idx].parent; }
+        result = depth - 1;
+
+        if (path_out) {
+            State *path = malloc(depth * sizeof(State));
+            idx = goal_idx;
+            for (int i = depth - 1; i >= 0; i--) {
+                path[i] = queue[idx].state;
+                idx = queue[idx].parent;
+            }
+            *path_out = path;
+        }
+        if (path_len_out) *path_len_out = depth;
+    }
+
+    free(nbrs);
+    free(queue);
+    tt_free(&visited);
+    return result;
+}
+
+/*
+ * solve_bfs_len -- lightweight BFS returning only the path length.
+ *
+ * Uses a single State queue without parent tracking. Tracks BFS levels
+ * via a level_end marker to count depth.
+ */
+int solve_bfs_len(const Maze *m) {
+    if (m->nterm < 2) return -1;
+
+    State start = {0, 1, CDIR_E, 0};
+    State goal  = {0, 1, CDIR_E, 1};
+
+    TT visited;
+    tt_init(&visited);
+    tt_update(&visited, start, 0);
+
+    int max_nbrs = 8 * m->nterm;
+    State *nbrs = malloc(max_nbrs * sizeof(State));
+
+    int cap = 4096;
+    State *queue = malloc(cap * sizeof(State));
+    int head = 0, tail = 0;
+    queue[tail++] = start;
+
+    int level_end = tail;
+    int depth = 0;
+    int result = -1;
+
+    while (head < tail) {
+        if (head == level_end) {
+            depth++;
+            level_end = tail;
+            if (depth > MAX_DEPTH) break;
+        }
+
+        State cur = queue[head++];
+
+        if (state_eq(cur, goal)) {
+            result = depth;
+            goto bfs_len_done;
+        }
+
+        int nn = get_neighbors(m, cur, nbrs);
+        for (int i = 0; i < nn; i++) {
+            if (!tt_update(&visited, nbrs[i], 0)) continue;
+            if (tail >= cap) {
+                cap *= 2;
+                queue = realloc(queue, cap * sizeof(State));
+            }
+            queue[tail++] = nbrs[i];
+        }
+    }
+
+bfs_len_done:
+    free(nbrs);
+    free(queue);
+    tt_free(&visited);
     return result;
 }
 

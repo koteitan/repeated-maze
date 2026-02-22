@@ -39,7 +39,8 @@ typedef struct {
  *
  * Returns a QMResult with the best maze found. Use qmresult_free() to release.
  */
-QMResult quizmaster_search(int nterm, int min_aport, int max_aport, int max_len);
+QMResult quizmaster_search(int nterm, int min_aport, int max_aport,
+                           int max_len, int use_bfs);
 
 /*
  * quizmaster_random_search -- random sampling search for the maze with the
@@ -55,11 +56,12 @@ QMResult quizmaster_search(int nterm, int min_aport, int max_aport, int max_len)
  *   max_aport  -- maximum number of active ports per maze
  *   max_len    -- stop early when best path length >= max_len (0 = no limit)
  *   seed       -- random seed for srand()
+ *   use_bfs    -- if nonzero, use BFS instead of IDDFS for solving
  *
  * Returns a QMResult with the best maze found. Use qmresult_free() to release.
  */
 QMResult quizmaster_random_search(int nterm, int min_aport, int max_aport,
-                                  int max_len, unsigned int seed);
+                                  int max_len, unsigned int seed, int use_bfs);
 
 /*
  * quizmaster_topdown_search -- top-down search starting from fully-connected maze.
@@ -75,10 +77,11 @@ QMResult quizmaster_random_search(int nterm, int min_aport, int max_aport,
  * Parameters:
  *   nterm   -- number of terminal indices per direction (must be >= 2)
  *   max_len -- stop early when best path length >= max_len (0 = no limit)
+ *   use_bfs -- if nonzero, use BFS instead of IDDFS for solving
  *
  * Returns a QMResult with the best maze found. Use qmresult_free() to release.
  */
-QMResult quizmaster_topdown_search(int nterm, int max_len);
+QMResult quizmaster_topdown_search(int nterm, int max_len, int use_bfs);
 
 /* qmresult_free -- free the maze and path stored in a QMResult. */
 void qmresult_free(QMResult *r);

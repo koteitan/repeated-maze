@@ -150,7 +150,8 @@ static int has_abstract_path(const Maze *m) {
  *    solve if reachable, and track the global best.
  * 4. Stop early if max_len > 0 and best_len >= max_len.
  */
-QMResult quizmaster_search(int nterm, int min_aport, int max_aport, int max_len) {
+QMResult quizmaster_search(int nterm, int min_aport, int max_aport,
+                           int max_len, int use_bfs) {
     QMResult result = {NULL, 0, NULL, 0};
     if (nterm < 2) return result;
 
@@ -207,13 +208,20 @@ QMResult quizmaster_search(int nterm, int min_aport, int max_aport, int max_len)
 
             /* Pruning 2: abstract terminal reachability */
             if (has_abstract_path(m)) {
+                int len;
                 State *tmp_path = NULL;
                 int tmp_path_len = 0;
-                int len = solve(m, &tmp_path, &tmp_path_len);
+                if (use_bfs) {
+                    len = solve_bfs_len(m);
+                } else {
+                    len = solve(m, &tmp_path, &tmp_path_len);
+                }
                 if (len < 0) len = 0;
                 total_solved++;
 
                 if (len > best_len) {
+                    if (use_bfs)
+                        solve_bfs(m, &tmp_path, &tmp_path_len);
                     best_len = len;
                     if (best) maze_destroy(best);
                     best = maze_clone(m);
@@ -297,7 +305,7 @@ search_done:
  * is reached.
  */
 QMResult quizmaster_random_search(int nterm, int min_aport, int max_aport,
-                                  int max_len, unsigned int seed) {
+                                  int max_len, unsigned int seed, int use_bfs) {
     QMResult result = {NULL, 0, NULL, 0};
     if (nterm < 2) return result;
 
@@ -363,13 +371,20 @@ QMResult quizmaster_random_search(int nterm, int min_aport, int max_aport,
 
         /* Pruning: abstract terminal reachability */
         if (has_abstract_path(m)) {
+            int len;
             State *tmp_path = NULL;
             int tmp_path_len = 0;
-            int len = solve(m, &tmp_path, &tmp_path_len);
+            if (use_bfs) {
+                len = solve_bfs_len(m);
+            } else {
+                len = solve(m, &tmp_path, &tmp_path_len);
+            }
             if (len < 0) len = 0;
             total_solved++;
 
             if (len > best_len) {
+                if (use_bfs)
+                    solve_bfs(m, &tmp_path, &tmp_path_len);
                 best_len = len;
                 if (best) maze_destroy(best);
                 best = maze_clone(m);
@@ -473,19 +488,33 @@ static void ps_free(PortStack *s) {
 /* --- Seen set (open-addressing hash table of flat port arrays) --- */
 
 typedef struct {
-    uint8_t **keys;
+    uint8_t  **keys;
+    uint64_t  *hashes;   /* precomputed hash per slot (0 = empty) */
     int size;
     int count;
     int key_len;
 } SeenSet;
 
+/*
+ * seen_hash -- hash flat port data (8 bytes at a time for speed).
+ * Uses a multiply-xorshift scheme with golden-ratio constant.
+ */
 static uint64_t seen_hash(const uint8_t *data, int len) {
-    uint64_t h = 14695981039346656037ULL;
-    for (int i = 0; i < len; i++) {
-        h ^= data[i];
-        h *= 1099511628211ULL;
+    uint64_t h = 0x517cc1b727220a95ULL;
+    int i = 0;
+    for (; i + 7 < len; i += 8) {
+        uint64_t chunk;
+        memcpy(&chunk, data + i, 8);
+        h ^= chunk;
+        h *= 0x9e3779b97f4a7c15ULL;
+        h ^= h >> 32;
     }
-    return h;
+    for (; i < len; i++) {
+        h ^= data[i];
+        h *= 0x9e3779b97f4a7c15ULL;
+    }
+    /* Ensure hash is never 0 (0 = empty sentinel) */
+    return h | 1;
 }
 
 static void seen_init(SeenSet *s, int key_len) {
@@ -493,40 +522,53 @@ static void seen_init(SeenSet *s, int key_len) {
     s->count = 0;
     s->key_len = key_len;
     s->keys = calloc(s->size, sizeof(uint8_t *));
+    s->hashes = calloc(s->size, sizeof(uint64_t));
 }
 
 static void seen_rebuild(SeenSet *s) {
     int new_size = s->size * 2;
     uint8_t **new_keys = calloc(new_size, sizeof(uint8_t *));
+    uint64_t *new_hashes = calloc(new_size, sizeof(uint64_t));
+    uint64_t mask = (uint64_t)(new_size - 1);
     for (int i = 0; i < s->size; i++) {
-        if (!s->keys[i]) continue;
-        uint64_t h = seen_hash(s->keys[i], s->key_len) & (uint64_t)(new_size - 1);
-        while (new_keys[h])
-            h = (h + 1) & (uint64_t)(new_size - 1);
+        if (!s->hashes[i]) continue;
+        uint64_t h = s->hashes[i] & mask;
+        while (new_hashes[h])
+            h = (h + 1) & mask;
         new_keys[h] = s->keys[i];
+        new_hashes[h] = s->hashes[i];
     }
     free(s->keys);
+    free(s->hashes);
     s->keys = new_keys;
+    s->hashes = new_hashes;
     s->size = new_size;
 }
 
 static int seen_contains(const SeenSet *s, const uint8_t *data) {
-    uint64_t h = seen_hash(data, s->key_len) & (uint64_t)(s->size - 1);
-    while (s->keys[h]) {
-        if (memcmp(s->keys[h], data, s->key_len) == 0) return 1;
-        h = (h + 1) & (uint64_t)(s->size - 1);
+    uint64_t hash = seen_hash(data, s->key_len);
+    uint64_t mask = (uint64_t)(s->size - 1);
+    uint64_t h = hash & mask;
+    while (s->hashes[h]) {
+        if (s->hashes[h] == hash &&
+            memcmp(s->keys[h], data, s->key_len) == 0)
+            return 1;
+        h = (h + 1) & mask;
     }
     return 0;
 }
 
 static void seen_insert(SeenSet *s, const uint8_t *data) {
     if (s->count * 2 >= s->size) seen_rebuild(s);
+    uint64_t hash = seen_hash(data, s->key_len);
+    uint64_t mask = (uint64_t)(s->size - 1);
     uint8_t *copy = malloc(s->key_len);
     memcpy(copy, data, s->key_len);
-    uint64_t h = seen_hash(data, s->key_len) & (uint64_t)(s->size - 1);
-    while (s->keys[h])
-        h = (h + 1) & (uint64_t)(s->size - 1);
+    uint64_t h = hash & mask;
+    while (s->hashes[h])
+        h = (h + 1) & mask;
     s->keys[h] = copy;
+    s->hashes[h] = hash;
     s->count++;
 }
 
@@ -534,6 +576,7 @@ static void seen_free(SeenSet *s) {
     for (int i = 0; i < s->size; i++)
         free(s->keys[i]);
     free(s->keys);
+    free(s->hashes);
 }
 
 /* --- Helper: extract flat port data from maze --- */
@@ -548,7 +591,7 @@ static void maze_to_flat(const Maze *m, uint8_t *data) {
 
 #define TD_MAX_PRIORITY 1000
 
-QMResult quizmaster_topdown_search(int nterm, int max_len) {
+QMResult quizmaster_topdown_search(int nterm, int max_len, int use_bfs) {
     QMResult result = {NULL, 0, NULL, 0};
     if (nterm < 2) return result;
 
@@ -619,9 +662,16 @@ QMResult quizmaster_topdown_search(int nterm, int max_len) {
         /* Load into maze and solve */
         maze_set_from_array(m, data);
 
+        int len;
         State *tmp_path = NULL;
         int tmp_path_len = 0;
-        int len = solve(m, &tmp_path, &tmp_path_len);
+        if (use_bfs) {
+            len = solve_bfs_len(m);
+        } else {
+            /* Start IDDFS from depth hi: parent had path length hi,
+             * removing a port can only increase it */
+            len = solve_from(m, hi, &tmp_path, &tmp_path_len);
+        }
 
         if (len < 0) {
             /* Unreachable: discard */
@@ -635,6 +685,8 @@ QMResult quizmaster_topdown_search(int nterm, int max_len) {
 
         /* Update best */
         if (len > best_len) {
+            if (use_bfs)
+                solve_bfs(m, &tmp_path, &tmp_path_len);
             best_len = len;
             if (best) maze_destroy(best);
             best = maze_clone(m);
