@@ -26,7 +26,7 @@
 #include "solver.h"
 #include "quizmaster.h"
 
-#define VERSION "0.1.7"
+#define VERSION "0.1.8"
 
 /*
  * usage -- print usage information to stderr and exit with code 1.
@@ -36,6 +36,7 @@ static void usage(void) {
         "Usage:\n"
         "  repeated-maze solve <nterm> <maze_string>\n"
         "  repeated-maze search <nterm> --max-aport <N> [--min-aport <N>] [--max-len <N>] [--random <seed>]\n"
+        "  repeated-maze search <nterm> --topdown [--max-len <N>]\n"
         "  repeated-maze norm <nterm> <maze_string>\n");
     exit(1);
 }
@@ -105,6 +106,7 @@ static int cmd_search(int argc, char **argv) {
     int max_aport = -1;
     int max_len = 0;
     int random_seed = -1;
+    int topdown = 0;
 
     for (int i = 3; i < argc; i++) {
         if (strcmp(argv[i], "--max-aport") == 0 && i + 1 < argc)
@@ -115,20 +117,22 @@ static int cmd_search(int argc, char **argv) {
             max_len = atoi(argv[++i]);
         else if (strcmp(argv[i], "--random") == 0 && i + 1 < argc)
             random_seed = atoi(argv[++i]);
-    }
-
-    if (max_aport < 0) {
-        fprintf(stderr, "Error: --max-aport <N> is required\n");
-        usage();
+        else if (strcmp(argv[i], "--topdown") == 0)
+            topdown = 1;
     }
 
     QMResult r;
-    if (random_seed >= 0) {
+    if (topdown) {
+        printf("Top-down search: nterm=%d max_len=%d\n", nterm, max_len);
+        r = quizmaster_topdown_search(nterm, max_len);
+    } else if (random_seed >= 0) {
+        if (max_aport < 0) { fprintf(stderr, "Error: --max-aport <N> is required\n"); usage(); }
         printf("Random search: nterm=%d min_aport=%d max_aport=%d max_len=%d seed=%d\n",
                nterm, min_aport, max_aport, max_len, random_seed);
         r = quizmaster_random_search(nterm, min_aport, max_aport, max_len,
                                      (unsigned int)random_seed);
     } else {
+        if (max_aport < 0) { fprintf(stderr, "Error: --max-aport <N> is required\n"); usage(); }
         printf("Search: nterm=%d min_aport=%d max_aport=%d max_len=%d\n",
                nterm, min_aport, max_aport, max_len);
         r = quizmaster_search(nterm, min_aport, max_aport, max_len);

@@ -61,6 +61,25 @@ QMResult quizmaster_search(int nterm, int min_aport, int max_aport, int max_len)
 QMResult quizmaster_random_search(int nterm, int min_aport, int max_aport,
                                   int max_len, unsigned int seed);
 
+/*
+ * quizmaster_topdown_search -- top-down search starting from fully-connected maze.
+ *
+ * Starts with all non-self-loop ports active and iteratively removes one port
+ * at a time, prioritizing mazes with longer shortest paths. Since removing ports
+ * can only increase or maintain the shortest path length, the search naturally
+ * converges toward the optimal maze without passing through unreachable states.
+ *
+ * Uses priority stacks (indexed by path length) for best-first expansion,
+ * normalization for deduplication, and abstract reachability for pruning.
+ *
+ * Parameters:
+ *   nterm   -- number of terminal indices per direction (must be >= 2)
+ *   max_len -- stop early when best path length >= max_len (0 = no limit)
+ *
+ * Returns a QMResult with the best maze found. Use qmresult_free() to release.
+ */
+QMResult quizmaster_topdown_search(int nterm, int max_len);
+
 /* qmresult_free -- free the maze and path stored in a QMResult. */
 void qmresult_free(QMResult *r);
 

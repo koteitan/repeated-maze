@@ -430,3 +430,307 @@ QMResult quizmaster_random_search(int nterm, int min_aport, int max_aport,
 
     return result;
 }
+
+/* ================================================================
+ * Top-down search: start from fully-connected, remove ports one at a time.
+ * ================================================================ */
+
+/* --- Dynamic stack of flat port arrays --- */
+
+typedef struct {
+    uint8_t **items;
+    int count;
+    int cap;
+} PortStack;
+
+static void ps_init(PortStack *s) {
+    s->cap = 64;
+    s->count = 0;
+    s->items = malloc(s->cap * sizeof(uint8_t *));
+}
+
+static void ps_push(PortStack *s, const uint8_t *data, int len) {
+    if (s->count >= s->cap) {
+        s->cap *= 2;
+        s->items = realloc(s->items, s->cap * sizeof(uint8_t *));
+    }
+    uint8_t *copy = malloc(len);
+    memcpy(copy, data, len);
+    s->items[s->count++] = copy;
+}
+
+static uint8_t *ps_pop(PortStack *s) {
+    if (s->count == 0) return NULL;
+    return s->items[--s->count];
+}
+
+static void ps_free(PortStack *s) {
+    for (int i = 0; i < s->count; i++)
+        free(s->items[i]);
+    free(s->items);
+}
+
+/* --- Seen set (open-addressing hash table of flat port arrays) --- */
+
+typedef struct {
+    uint8_t **keys;
+    int size;
+    int count;
+    int key_len;
+} SeenSet;
+
+static uint64_t seen_hash(const uint8_t *data, int len) {
+    uint64_t h = 14695981039346656037ULL;
+    for (int i = 0; i < len; i++) {
+        h ^= data[i];
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+static void seen_init(SeenSet *s, int key_len) {
+    s->size = 65536;
+    s->count = 0;
+    s->key_len = key_len;
+    s->keys = calloc(s->size, sizeof(uint8_t *));
+}
+
+static void seen_rebuild(SeenSet *s) {
+    int new_size = s->size * 2;
+    uint8_t **new_keys = calloc(new_size, sizeof(uint8_t *));
+    for (int i = 0; i < s->size; i++) {
+        if (!s->keys[i]) continue;
+        uint64_t h = seen_hash(s->keys[i], s->key_len) & (uint64_t)(new_size - 1);
+        while (new_keys[h])
+            h = (h + 1) & (uint64_t)(new_size - 1);
+        new_keys[h] = s->keys[i];
+    }
+    free(s->keys);
+    s->keys = new_keys;
+    s->size = new_size;
+}
+
+static int seen_contains(const SeenSet *s, const uint8_t *data) {
+    uint64_t h = seen_hash(data, s->key_len) & (uint64_t)(s->size - 1);
+    while (s->keys[h]) {
+        if (memcmp(s->keys[h], data, s->key_len) == 0) return 1;
+        h = (h + 1) & (uint64_t)(s->size - 1);
+    }
+    return 0;
+}
+
+static void seen_insert(SeenSet *s, const uint8_t *data) {
+    if (s->count * 2 >= s->size) seen_rebuild(s);
+    uint8_t *copy = malloc(s->key_len);
+    memcpy(copy, data, s->key_len);
+    uint64_t h = seen_hash(data, s->key_len) & (uint64_t)(s->size - 1);
+    while (s->keys[h])
+        h = (h + 1) & (uint64_t)(s->size - 1);
+    s->keys[h] = copy;
+    s->count++;
+}
+
+static void seen_free(SeenSet *s) {
+    for (int i = 0; i < s->size; i++)
+        free(s->keys[i]);
+    free(s->keys);
+}
+
+/* --- Helper: extract flat port data from maze --- */
+
+static void maze_to_flat(const Maze *m, uint8_t *data) {
+    memcpy(data, m->normal_ports, m->normal_nports);
+    memcpy(data + m->normal_nports, m->nx_ports, m->nx_nports);
+    memcpy(data + m->normal_nports + m->nx_nports, m->ny_ports, m->ny_nports);
+}
+
+/* --- Top-down search --- */
+
+#define TD_MAX_PRIORITY 1000
+
+QMResult quizmaster_topdown_search(int nterm, int max_len) {
+    QMResult result = {NULL, 0, NULL, 0};
+    if (nterm < 2) return result;
+
+    interrupted = 0;
+    struct sigaction sa, old_sa;
+    sa.sa_handler = sigint_handler;
+    sa.sa_flags = 0;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGINT, &sa, &old_sa);
+
+    Maze *m = maze_create(nterm);
+    int total = m->total_nports;
+
+    /* Build candidate list (exclude self-loop ports) */
+    int *candidates = malloc(total * sizeof(int));
+    int ncand = 0;
+    for (int i = 0; i < total; i++)
+        if (!is_self_loop_port(m, i))
+            candidates[ncand++] = i;
+
+    fprintf(stderr, "Top-down search: %d candidates (excluding %d self-loops)\n",
+            ncand, total - ncand);
+
+    /* Start: fully-connected maze (all candidates active) */
+    maze_clear(m);
+    for (int i = 0; i < ncand; i++)
+        maze_set_port(m, candidates[i], 1);
+
+    free(candidates);
+
+    /* Initialize priority stacks */
+    PortStack *stacks = malloc(TD_MAX_PRIORITY * sizeof(PortStack));
+    for (int i = 0; i < TD_MAX_PRIORITY; i++)
+        ps_init(&stacks[i]);
+
+    /* Seen set */
+    SeenSet seen;
+    seen_init(&seen, total);
+
+    /* Push fully-connected maze into stack[1] */
+    uint8_t *flat = malloc(total);
+    maze_to_flat(m, flat);
+    ps_push(&stacks[1], flat, total);
+    seen_insert(&seen, flat);
+
+    Maze *best = NULL;
+    int best_len = 0;
+    State *best_path = NULL;
+    int best_path_len = 0;
+    uint64_t total_popped = 0;
+    uint64_t total_solved = 0;
+    uint64_t total_pruned = 0;
+
+    uint8_t *child_flat = malloc(total);
+
+    while (!interrupted) {
+        /* Find highest non-empty stack */
+        int hi = -1;
+        for (int i = TD_MAX_PRIORITY - 1; i >= 0; i--) {
+            if (stacks[i].count > 0) { hi = i; break; }
+        }
+        if (hi < 0) break;
+
+        /* Pop maze from highest stack */
+        uint8_t *data = ps_pop(&stacks[hi]);
+        total_popped++;
+
+        /* Load into maze and solve */
+        maze_set_from_array(m, data);
+
+        State *tmp_path = NULL;
+        int tmp_path_len = 0;
+        int len = solve(m, &tmp_path, &tmp_path_len);
+
+        if (len < 0) {
+            /* Unreachable: discard */
+            free(data);
+            free(tmp_path);
+            total_pruned++;
+            goto td_progress;
+        }
+
+        total_solved++;
+
+        /* Update best */
+        if (len > best_len) {
+            best_len = len;
+            if (best) maze_destroy(best);
+            best = maze_clone(m);
+            free(best_path);
+            best_path = tmp_path;
+            best_path_len = tmp_path_len;
+            tmp_path = NULL;
+            fprintf(stderr, "[pop %llu, stack %d] new best: length %d\n",
+                    (unsigned long long)total_popped, hi, best_len);
+            fprintf(stderr, "  ");
+            maze_fprint(stderr, best);
+            fprintf(stderr, "  ");
+            path_fprint(stderr, best_path, best_path_len);
+            if (max_len > 0 && best_len >= max_len) {
+                free(data);
+                free(tmp_path);
+                break;
+            }
+        }
+        free(tmp_path);
+
+        /* Generate children: remove one active port at a time */
+        int stack_idx = len < TD_MAX_PRIORITY ? len : TD_MAX_PRIORITY - 1;
+        for (int i = 0; i < total; i++) {
+            if (!data[i]) continue;
+
+            /* Create child: remove port i */
+            memcpy(child_flat, data, total);
+            child_flat[i] = 0;
+
+            /* Normalize child */
+            maze_set_from_array(m, child_flat);
+            maze_normalize(m);
+            maze_to_flat(m, child_flat);
+
+            /* Dedup */
+            if (seen_contains(&seen, child_flat)) continue;
+
+            /* Abstract reachability pruning */
+            if (!has_abstract_path(m)) {
+                total_pruned++;
+                continue;
+            }
+
+            seen_insert(&seen, child_flat);
+            ps_push(&stacks[stack_idx], child_flat, total);
+        }
+
+        free(data);
+
+    td_progress:
+        if (total_popped % 1000 == 0) {
+            /* Build stack size summary string */
+            char stackinfo[1024];
+            int pos = 0;
+            int first = 1;
+            for (int i = 0; i < TD_MAX_PRIORITY && pos < 900; i++) {
+                if (stacks[i].count > 0) {
+                    pos += snprintf(stackinfo + pos, sizeof(stackinfo) - pos,
+                                    "%s%d:%d", first ? "" : ",", i, stacks[i].count);
+                    first = 0;
+                }
+            }
+            if (first) snprintf(stackinfo, sizeof(stackinfo), "(empty)");
+            fprintf(stderr, "[topdown] popped=%llu solved=%llu pruned=%llu seen=%d best=%d stack={%s}\n",
+                    (unsigned long long)total_popped,
+                    (unsigned long long)total_solved,
+                    (unsigned long long)total_pruned,
+                    seen.count, best_len, stackinfo);
+        }
+    }
+
+    free(flat);
+    free(child_flat);
+    for (int i = 0; i < TD_MAX_PRIORITY; i++)
+        ps_free(&stacks[i]);
+    free(stacks);
+    seen_free(&seen);
+
+    if (interrupted)
+        fprintf(stderr, "\nInterrupted by SIGINT.\n");
+
+    fprintf(stderr, "Top-down complete: %llu popped, %llu solved, %llu pruned, seen=%d, best=%d\n",
+            (unsigned long long)total_popped,
+            (unsigned long long)total_solved,
+            (unsigned long long)total_pruned,
+            seen.count, best_len);
+
+    if (best) {
+        result.best_maze     = best;
+        result.best_length   = best_len;
+        result.best_path     = best_path;
+        result.best_path_len = best_path_len;
+    }
+
+    maze_destroy(m);
+    sigaction(SIGINT, &old_sa, NULL);
+    return result;
+}
