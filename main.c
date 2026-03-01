@@ -25,7 +25,7 @@
 #include "solver.h"
 #include "quizmaster.h"
 
-#define VERSION "0.2.0"
+#define VERSION "0.2.1"
 
 /*
  * usage -- print usage information to stderr and exit with code 1.
@@ -76,10 +76,9 @@ static int cmd_solve(int argc, char **argv) {
     if (result < 0) {
         printf("No path found\n");
     } else {
-        printf("Path length: %d\n", result);
         printf("Path:\n");
         path_print(path, path_len);
-        printf("\n");
+        printf("\nPath length: %d\n", result);
         if (verbose)
             path_print_verbose(m, path, path_len);
     }
@@ -147,13 +146,12 @@ static int cmd_search(int argc, char **argv) {
 
     if (r.best_maze) {
         printf("\n=== Best result ===\n");
-        printf("Path length: %d\n", r.best_length);
         printf("Maze:\n");
         maze_print(r.best_maze);
         if (r.best_path) {
             printf("Path:\n");
             path_print(r.best_path, r.best_path_len);
-            printf("\n");
+            printf("\nPath length: %d\n", r.best_length);
             if (verbose)
                 path_print_verbose(r.best_maze, r.best_path, r.best_path_len);
         }
