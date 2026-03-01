@@ -54,7 +54,9 @@ function parseTermName(s) {
 }
 
 function parseMaze(text) {
+  /* Strip "Maze:" prefix and any "Path length: N" lines */
   text = text.replace(/^maze:\s*/i, '').trim();
+  text = text.replace(/^path\s+length:\s*\d+.*$/gim, '').trim();
   const result = { normal: [], nx: [], ny: [] };
   const sections = text.split(';');
   for (const sec of sections) {
@@ -77,6 +79,8 @@ function parseMaze(text) {
 }
 
 function parsePath(text) {
+  /* Strip "Path:" prefix and "Path length: N" lines */
+  text = text.replace(/^path\s+length:\s*\d+.*$/gim, '').trim();
   text = text.replace(/^path:\s*/i, '').trim();
   if (!text) return [];
   const parts = text.split('->');
@@ -383,6 +387,31 @@ function draw() {
     }
   }
 }
+
+/* Auto-split: if maze textarea contains "Path:", move that part to answer textarea */
+function splitMazeInput() {
+  const mazeEl = document.getElementById('maze-input');
+  const answerEl = document.getElementById('answer-input');
+  const lines = mazeEl.value.split('\n');
+  let pathIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (/^Path:/i.test(t) && !/^Path\s+length:/i.test(t)) {
+      pathIdx = i;
+      break;
+    }
+  }
+  if (pathIdx < 0) return;
+  const mazeLines = lines.slice(0, pathIdx)
+    .filter(l => !/^Path\s+length:/i.test(l.trim()));
+  const pathFirst = lines[pathIdx].replace(/^Path:\s*/i, '').trim();
+  const pathRest = lines.slice(pathIdx + 1).join('\n').trim();
+  const pathPart = (pathFirst + (pathRest ? ' ' + pathRest : '')).trim();
+  mazeEl.value = mazeLines.join('\n').trim();
+  if (pathPart) answerEl.value = pathPart;
+}
+
+document.getElementById('maze-input').addEventListener('input', splitMazeInput);
 
 function onResize() { draw(); }
 document.getElementById('draw-btn').addEventListener('click', draw);

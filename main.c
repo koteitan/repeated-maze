@@ -5,8 +5,7 @@
  *
  *   solve  -- Parse a maze from its string representation and find the
  *             shortest path from start to goal using IDDFS. Displays the
- *             maze, path, port table, grid visualization, and verbose
- *             transition log.
+ *             maze and path. Use -v for verbose transition log.
  *
  *   search -- Run the quizmaster exhaustive search to find the maze
  *             configuration (port assignment) that maximizes the shortest
@@ -26,7 +25,7 @@
 #include "solver.h"
 #include "quizmaster.h"
 
-#define VERSION "0.1.9"
+#define VERSION "0.2.0"
 
 /*
  * usage -- print usage information to stderr and exit with code 1.
@@ -34,9 +33,9 @@
 static void usage(void) {
     fprintf(stderr,
         "Usage:\n"
-        "  repeated-maze solve <maze_string> [--bfs]\n"
-        "  repeated-maze search <nterm> --max-aport <N> [--min-aport <N>] [--max-len <N>] [--random <seed>] [--bfs]\n"
-        "  repeated-maze search <nterm> --topdown [--max-len <N>] [--bfs]\n"
+        "  repeated-maze solve <maze_string> [--bfs] [-v]\n"
+        "  repeated-maze search <nterm> --max-aport <N> [--min-aport <N>] [--max-len <N>] [--random <seed>] [--bfs] [-v]\n"
+        "  repeated-maze search <nterm> --topdown [--max-len <N>] [--bfs] [-v]\n"
         "  repeated-maze norm <nterm> <maze_string>\n");
     exit(1);
 }
@@ -51,9 +50,12 @@ static int cmd_solve(int argc, char **argv) {
     if (argc < 3) usage();
     const char *maze_str = argv[2];
     int use_bfs = 0;
+    int verbose = 0;
     for (int i = 3; i < argc; i++) {
         if (strcmp(argv[i], "--bfs") == 0)
             use_bfs = 1;
+        else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0)
+            verbose = 1;
     }
 
     int nterm = maze_detect_nterm(maze_str);
@@ -63,7 +65,7 @@ static int cmd_solve(int argc, char **argv) {
         return 1;
     }
 
-    printf("Maze: ");
+    printf("Maze:\n");
     maze_print(m);
 
     State *path = NULL;
@@ -75,14 +77,11 @@ static int cmd_solve(int argc, char **argv) {
         printf("No path found\n");
     } else {
         printf("Path length: %d\n", result);
-        printf("Path: ");
+        printf("Path:\n");
         path_print(path, path_len);
         printf("\n");
-        maze_print_table(m);
-        printf("\n");
-        path_print_grid(path, path_len);
-        printf("\n");
-        path_print_verbose(m, path, path_len);
+        if (verbose)
+            path_print_verbose(m, path, path_len);
     }
 
     free(path);
@@ -110,6 +109,7 @@ static int cmd_search(int argc, char **argv) {
     int random_seed = -1;
     int topdown = 0;
     int use_bfs = 0;
+    int verbose = 0;
 
     for (int i = 3; i < argc; i++) {
         if (strcmp(argv[i], "--max-aport") == 0 && i + 1 < argc)
@@ -124,6 +124,8 @@ static int cmd_search(int argc, char **argv) {
             topdown = 1;
         else if (strcmp(argv[i], "--bfs") == 0)
             use_bfs = 1;
+        else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0)
+            verbose = 1;
     }
 
     QMResult r;
@@ -146,17 +148,14 @@ static int cmd_search(int argc, char **argv) {
     if (r.best_maze) {
         printf("\n=== Best result ===\n");
         printf("Path length: %d\n", r.best_length);
-        printf("Maze: ");
+        printf("Maze:\n");
         maze_print(r.best_maze);
-        printf("\n");
-        maze_print_table(r.best_maze);
         if (r.best_path) {
-            printf("\nPath: ");
+            printf("Path:\n");
             path_print(r.best_path, r.best_path_len);
             printf("\n");
-            path_print_grid(r.best_path, r.best_path_len);
-            printf("\n");
-            path_print_verbose(r.best_maze, r.best_path, r.best_path_len);
+            if (verbose)
+                path_print_verbose(r.best_maze, r.best_path, r.best_path_len);
         }
         qmresult_free(&r);
     } else {
