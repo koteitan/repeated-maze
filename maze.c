@@ -459,6 +459,29 @@ static int skip_str(const char **p, const char *s) {
 }
 
 /*
+ * maze_detect_nterm -- scan a maze string and return the detected nterm.
+ * Finds all terminal references (E0, W1, N12, S3, etc.) and returns
+ * max_index + 1, with a minimum of 2.
+ */
+int maze_detect_nterm(const char *str) {
+    int max_idx = 1; /* minimum nterm = 2, so max_idx starts at 1 */
+    for (const char *p = str; *p; p++) {
+        if ((*p == 'E' || *p == 'W' || *p == 'N' || *p == 'S') &&
+            isdigit((unsigned char)*(p + 1))) {
+            p++;
+            int idx = 0;
+            while (isdigit((unsigned char)*p)) {
+                idx = idx * 10 + (*p - '0');
+                p++;
+            }
+            if (idx > max_idx) max_idx = idx;
+            p--; /* compensate for loop increment */
+        }
+    }
+    return max_idx + 1;
+}
+
+/*
  * maze_parse -- parse a maze from its string representation.
  * Expected format: "normal: E0->N1, W0->S1; nx: E0->E1; ny: (none)"
  * Each section is separated by ';'. Port entries are separated by ','.

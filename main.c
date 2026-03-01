@@ -14,7 +14,7 @@
  *             visualizations.
  *
  * Usage:
- *   repeated-maze solve <nterm> <maze_string>
+ *   repeated-maze solve <maze_string>
  *   repeated-maze search <nterm> --max-aport <N>
  *   repeated-maze norm <nterm> <maze_string>
  *   repeated-maze --version | -v
@@ -34,7 +34,7 @@
 static void usage(void) {
     fprintf(stderr,
         "Usage:\n"
-        "  repeated-maze solve <nterm> <maze_string> [--bfs]\n"
+        "  repeated-maze solve <maze_string> [--bfs]\n"
         "  repeated-maze search <nterm> --max-aport <N> [--min-aport <N>] [--max-len <N>] [--random <seed>] [--bfs]\n"
         "  repeated-maze search <nterm> --topdown [--max-len <N>] [--bfs]\n"
         "  repeated-maze norm <nterm> <maze_string>\n");
@@ -48,19 +48,15 @@ static void usage(void) {
  * and prints the result with multiple visualization formats.
  */
 static int cmd_solve(int argc, char **argv) {
-    if (argc < 4) usage();
-    int nterm = atoi(argv[2]);
-    if (nterm < 2) {
-        fprintf(stderr, "nterm must be >= 2\n");
-        return 1;
-    }
-    const char *maze_str = argv[3];
+    if (argc < 3) usage();
+    const char *maze_str = argv[2];
     int use_bfs = 0;
-    for (int i = 4; i < argc; i++) {
+    for (int i = 3; i < argc; i++) {
         if (strcmp(argv[i], "--bfs") == 0)
             use_bfs = 1;
     }
 
+    int nterm = maze_detect_nterm(maze_str);
     Maze *m = maze_parse(nterm, maze_str);
     if (!m) {
         fprintf(stderr, "Failed to parse maze string\n");

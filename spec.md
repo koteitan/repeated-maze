@@ -74,7 +74,3 @@ So, the total number of ports is (4*nterm)x(4*nterm) + 2*(nterm)x(nterm-1).
 ## application structure
 - (TBD)
 
-
-
-
-

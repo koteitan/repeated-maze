@@ -738,7 +738,7 @@ QMResult quizmaster_topdown_search(int nterm, int max_len, int use_bfs) {
         free(data);
 
     td_progress:
-        if (total_popped % 1000 == 0) {
+        if (total_popped % 10000 == 0) {
             /* Build stack size summary string */
             char stackinfo[1024];
             int pos = 0;

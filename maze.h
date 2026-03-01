@@ -151,6 +151,12 @@ void  maze_print(const Maze *m);
 void  maze_print_table(const Maze *m);
 
 /*
+ * maze_detect_nterm -- scan a maze string and return the detected nterm.
+ * Returns max terminal index + 1, minimum 2.
+ */
+int maze_detect_nterm(const char *str);
+
+/*
  * maze_parse -- create a maze from its string representation.
  * Format: "normal: E0->N1, ...; nx: E0->E1; ny: (none)"
  * Returns a new Maze on success, NULL on parse failure.
