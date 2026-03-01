@@ -73,6 +73,10 @@ nx: (none)
 ny: (none)
 ```
 
+## Examples
+
+- [nterm=6, w=5](6.md) — 6 terminals per side, return width 5, path length 257
+
 ## nterm=5 Examples
 
 ### w=3 (path length 96)

@@ -74,5 +74,23 @@ So, the total number of ports is (4*nterm)x(4*nterm) + 2*(nterm)x(nterm-1).
 - the program shall be efficient and optimized for performance to handle large mazes and long paths.
 
 ## application structure
-- (TBD)
+
+### Source files
+
+| File | Role |
+|---|---|
+| `main.c` | CLI entry point. Dispatches subcommands: `solve`, `search`, `norm`. Parses options (`--bfs`, `--topdown`, `--max-aport`, etc.). |
+| `maze.h` / `maze.c` | Maze data structure (port arrays for normal/nx/ny blocks), port accessors (typed and flat-index), string parsing/printing, randomization, normalization. |
+| `solver.h` / `solver.c` | Shortest path solvers. `solve()` uses IDDFS with transposition table. `solve_bfs()` uses BFS with parent tracking for path reconstruction. `solve_bfs_len()` is a lightweight BFS returning length only. State canonicalization collapses W/S into E/N. |
+| `quizmaster.h` / `quizmaster.c` | Search strategies for finding the maze that maximizes shortest path length. `quizmaster_search()`: exhaustive enumeration over port combinations. `quizmaster_random_search()`: random sampling with configurable seed. `quizmaster_topdown_search()`: starts from fully-connected maze and removes ports, using priority stacks and normalization pruning. |
+| `index.html` | Browser-based visualizer. Renders maze port structure and path on canvas. Supports normal view (full graph with port arrows) and x,y-only view (simple motion lines). |
+| `Makefile` | Build configuration. `make` compiles to `repeated-maze` binary with gcc -O2. |
+
+### Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `solve <maze_string>` | Parse a maze and find the shortest path. Options: `--bfs` (use BFS instead of IDDFS), `-v` (verbose transition log). Auto-detects nterm from the maze string. |
+| `search <nterm> --max-aport <N>` | Exhaustive or random search for the maze with the longest shortest path. Options: `--min-aport`, `--max-len`, `--random <seed>`, `--topdown`, `--bfs`, `-v`. |
+| `norm <nterm> <maze_string>` | Normalize terminal indices to canonical form (first-appearance order). |
 

@@ -74,4 +74,22 @@
 - 大規模な迷路と長いパスを扱えるよう、効率的でパフォーマンスに最適化する。
 
 ## アプリケーション構成
-- (TBD)
+
+### ソースファイル
+
+| ファイル | 役割 |
+|---|---|
+| `main.c` | CLI エントリポイント。サブコマンド `solve`、`search`、`norm` を振り分ける。オプション（`--bfs`、`--topdown`、`--max-aport` 等）を解析。 |
+| `maze.h` / `maze.c` | 迷路データ構造（normal/nx/ny ブロックのポート配列）、ポートアクセサ（型付きおよびフラットインデックス）、文字列パース/出力、ランダム化、正規化。 |
+| `solver.h` / `solver.c` | 最短経路ソルバー。`solve()` は置換表付き IDDFS。`solve_bfs()` は親ポインタ付き BFS でパス復元。`solve_bfs_len()` は長さのみ返す軽量 BFS。状態の正規化で W/S を E/N に統合。 |
+| `quizmaster.h` / `quizmaster.c` | 最短経路長を最大化する迷路の探索戦略。`quizmaster_search()`: ポート組合せの網羅的列挙。`quizmaster_random_search()`: シード指定可能なランダムサンプリング。`quizmaster_topdown_search()`: 全結合迷路からポートを除去、優先度スタックと正規化枝刈りを使用。 |
+| `index.html` | ブラウザベースのビジュアライザ。迷路のポート構造とパスを canvas 上に描画。normal ビュー（ポート矢印付き完全グラフ）と x,y-only ビュー（単純な移動線）をサポート。 |
+| `Makefile` | ビルド設定。`make` で gcc -O2 により `repeated-maze` バイナリを生成。 |
+
+### サブコマンド
+
+| サブコマンド | 説明 |
+|---|---|
+| `solve <maze_string>` | 迷路をパースして最短経路を求める。オプション: `--bfs`（IDDFS の代わりに BFS 使用）、`-v`（遷移の詳細ログ）。迷路文字列から nterm を自動検出。 |
+| `search <nterm> --max-aport <N>` | 最長の最短経路を持つ迷路の網羅的またはランダム探索。オプション: `--min-aport`、`--max-len`、`--random <seed>`、`--topdown`、`--bfs`、`-v`。 |
+| `norm <nterm> <maze_string>` | ターミナルインデックスを正規形（出現順）に正規化。 |
