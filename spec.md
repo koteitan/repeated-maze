@@ -1,3 +1,5 @@
+[Japanese](spec-ja.md) | **English**
+
 # purpose
 Find the register machines that runs a long long time and halts like busy beaver of the turing machine.
 

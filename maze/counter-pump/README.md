@@ -1,79 +1,81 @@
+[Japanese](README-ja.md) | **English**
+
 # Counter Pump System
 
-repeated-maze において最短経路を長くする迷路の構成法。
-y 座標をカウンタとして使い、ゆっくり蓄積・高速に放出する非対称性から
-O(n) のリソース（nterm = n）で O(n²)〜O(n³) のパス長を生む。
+A maze construction method for repeated-maze that maximizes shortest path length.
+Uses the y-coordinate as a counter with slow accumulation and fast release asymmetry,
+producing O(n²)~O(n³) path lengths from O(n) resources (nterm = n).
 
-## 概要
+## Overview
 
-パスは3つのフェーズからなる：
-
-```
-往路 (Forward)   ───→  ゆっくり y を蓄積しながら東へ進む
-下降 (Descent)   ───→  N0→S0 で一気に y を消費（1ステップ/1y）
-復路 (Return)    ───→  西へ戻りゴールに到達
-```
-
-蓄積速度（n-2 ゲイン / n+2 ステップ）と放出速度（1y / 1ステップ）の非対称性が
-パス長の二乗成長を生む。
-
-## ポート構成
-
-nterm = n（n ≥ 4）のとき、以下のポートを normal block に設定する。
-
-### 往路サイクル用ポート
-
-y方向の鎖（N/S terminals）で y を蓄積し、E/W terminals でバウンスする。
+The path consists of three phases:
 
 ```
-W0 → N0          # 東のブロックに入り N0 へ
-N0 → N(n-2)      # 高インデックスへジャンプ
-S(n-2) → N(n-3)  # y+1（境界を越える）
+Forward   ───→  Slowly accumulate y while moving east
+Descent   ───→  Rapidly consume y via N0→S0 (1 step per y)
+Return    ───→  Move west back to the goal
+```
+
+The asymmetry between accumulation rate ((n-2) gain / (n+2) steps) and release rate
+(1y / 1 step) produces quadratic path length growth.
+
+## Port Structure
+
+For nterm = n (n ≥ 4), the following ports are set in the normal block.
+
+### Forward Cycle Ports
+
+Accumulate y via N/S terminal chains and bounce via E/W terminals.
+
+```
+W0 → N0          # Enter block from east, go to N0
+N0 → N(n-2)      # Jump to high index
+S(n-2) → N(n-3)  # y+1 (boundary cross)
 S(n-3) → N(n-4)  # y+1
   ...
 S2 → N1          # y+1
-S1 → E(n-1)      # y+1、E方向へ切替
-E(n-1) → W(n-2)  # 西のブロックへ（x-1）
-W(n-2) → E0      # 東のブロックへ戻る（x+1）
+S1 → E(n-1)      # y+1, switch to E direction
+E(n-1) → W(n-2)  # Go to west block (x-1)
+W(n-2) → E0      # Return to east block (x+1)
 ```
 
-1サイクルの変位: **(+1, +(n-2))**、ステップ数: **n+2**
+Displacement per cycle: **(+1, +(n-2))**, steps: **n+2**
 
-### 下降用ポート
+### Descent Ports
 
 ```
-N0 → S0           # y-1（同じブロック内で南壁へ）
+N0 → S0           # y-1 (within same block, to south wall)
 ```
 
-### 復路用ポート（幅 w）
+### Return Ports (width w)
 
-西方向の鎖で x を回収し、S1 で y を 1 下げる。
+Westward chain to recover x, with S1 reducing y by 1.
 
 ```
 N1 → W0           # x-1
 E0 → W(n-1)       # x-1
-E(n-1) → W(n-2)   # x-1（往路と共用）
-E(n-2) → W(n-3)   # x-1（w ≥ 4 の場合）
+E(n-1) → W(n-2)   # x-1 (shared with forward)
+E(n-2) → W(n-3)   # x-1 (when w ≥ 4)
   ...
-E(n-w+1) → W(n-w) # x-1（最後の西方向ホップ）
+E(n-w+1) → W(n-w) # x-1 (last westward hop)
 ```
 
-各サブサイクルの最後：
-- **非最終**: `E(n-w) → S1`（y-1、次のサブサイクルへ）
-- **最終**: `W(n-w) → W1`（ゴール到達、W1 = E1 at 西ブロック）
+End of each sub-cycle:
+- **Non-final**: `E(n-w) → S1` (y-1, continue to next sub-cycle)
+- **Final**: `W(n-w) → W1` (reach goal, W1 = E1 at western block)
 
-1サブサイクルの変位: **(-w, -1)**、ステップ数: **w+1**
+Displacement per sub-cycle: **(-w, -1)**, steps: **w+1**
 
-### nx / ny ポート
+### nx / ny Ports
 
 ```
 nx: (none)
 ny: (none)
 ```
 
-## nterm=5 の具体例
+## nterm=5 Examples
 
-### w=3（パス長 96）
+### w=3 (path length 96)
 
 ```
 normal: E0->W4, E4->W3, W0->N0, W3->E0, W3->W1, W3->W2,
@@ -82,7 +84,7 @@ normal: E0->W4, E4->W3, W0->N0, W3->E0, W3->W1, W3->W2,
 nx: (none); ny: (none)
 ```
 
-### w=4（パス長 129）
+### w=4 (path length 129)
 
 ```
 normal: W0->N0, N0->N3, N0->S0, S3->N2, S2->N1, S1->E4,
@@ -91,57 +93,57 @@ normal: W0->N0, N0->N3, N0->S0, S3->N2, S2->N1, S1->E4,
 nx: (none); ny: (none)
 ```
 
-## ディオファントス方程式
+## Diophantine Equations
 
-### 変位ベクトル
+### Displacement Vectors
 
-| フェーズ | 変位 (Δx, Δy) | ステップ数 | 回数 |
+| Phase | Displacement (Δx, Δy) | Steps | Count |
 |---|---|---|---|
-| 往路サイクル | (+1, +(n-2)) | n+2 | f |
-| 遷移 (E0→N0) | (+1, 0) | 1 | 1 |
-| 下降 | (0, -1) | 1 | d |
-| クライム | (0, +(n-3)) | n-2 | 1 |
-| 復路(非最終) | (-w, -1) | w+1 | r |
-| 復路(最終) | (-w, 0) | w+1 | 1 |
+| Forward cycle | (+1, +(n-2)) | n+2 | f |
+| Transition (E0→N0) | (+1, 0) | 1 | 1 |
+| Descent | (0, -1) | 1 | d |
+| Climb | (0, +(n-3)) | n-2 | 1 |
+| Return (non-final) | (-w, -1) | w+1 | r |
+| Return (final) | (-w, 0) | w+1 | 1 |
 
-### 閉路条件
+### Closure Conditions
 
-始点 (0,1) からゴール (0,1) へ、総変位 = (0,0)：
+From start (0,1) to goal (0,1), total displacement = (0,0):
 
 ```
 x:  f + 1 - wr - w = 0            →  f = w(r + 1) - 1    ... (I)
 y:  (n-2)f - d + (n-3) - r = 0    →  d = (n-2)f + (n-3) - r  ... (II)
 ```
 
-### 境界条件
+### Boundary Conditions
 
-下降後の y ≥ 1（y=0 は ny ブロックで行き止まり）：
+y ≥ 1 after descent (y=0 is ny block, dead end):
 
 ```
 d ≤ (n-2)f  →  (n-3) - r ≤ 0  →  r ≥ n - 3              ... (III)
 ```
 
-### 総ステップ数
+### Total Steps
 
 ```
 T = (n+2)f + 1 + d + (n-2) + (w+1)r + (w+1)
 ```
 
-(I)(II) を代入して整理：
+Substituting (I)(II) and simplifying:
 
 ```
 T = w(2n² - 3n - 2) - 3
 ```
 
-### 最小解（r = n-3 で最小化）
+### Minimal Solution (minimized at r = n-3)
 
-| パラメータ | 値 |
+| Parameter | Value |
 |---|---|
 | r | n - 3 |
 | f | w(n-2) - 1 |
 | d | (n-2)²w - (n-2) |
 
-## パス長の一覧
+## Path Length Table
 
 | n | w=3 | w=4 | w=n-1 |
 |---|---|---|---|
@@ -152,33 +154,33 @@ T = w(2n² - 3n - 2) - 3
 | 8 | 303 | 390 | 522 |
 | 10 | 501 | 648 | 918 |
 
-### 成長オーダー
+### Growth Order
 
 ```
-w = 3 (固定)  →  T = 6n² - 9n - 9  = Θ(n²)
-w = Θ(n)      →  T = Θ(n³)
+w = 3 (fixed)   →  T = 6n² - 9n - 9  = Θ(n²)
+w = Θ(n)        →  T = Θ(n³)
 ```
 
-## ショートカットが生じない理由
+## Why Shortcuts Don't Occur
 
-w を広げると、復路用ポート（例: E3→W2）が往路中にも使える。
-しかし、往路中に復路ポートを使っても **y座標の整合性**が合わず
-ゴールに到達できない。
+Widening w makes return ports (e.g., E3→W2) available during the forward phase.
+However, using return ports during the forward phase causes **y-coordinate inconsistency**,
+preventing arrival at the goal.
 
-往路サイクル k の途中（位置 (k, 4+3k) 付近）から早期復路を試みた場合：
+When attempting an early return from mid-forward cycle k (position near (k, 4+3k)):
 
 ```
-ゴール条件: x = 0, y = 1
-早期復路の到着: x = k - f(m), y = g(k, m)
+Goal condition: x = 0, y = 1
+Early return arrival: x = k - f(m), y = g(k, m)
 ```
 
-これがゴール座標と一致する整数解 (k, m) が存在しないことで
-ショートカットが排除される（ディオファントス方程式の非整数解）。
+The absence of integer solutions (k, m) satisfying the goal coordinates
+eliminates shortcuts (non-integer solutions to the Diophantine equation).
 
-## 設計指針
+## Design Principles
 
-1. **往路の x ゲインは最小 (a=1) に保つ** — x を増やすと往路サイクル数が減り、y 蓄積量が減る
-2. **往路の y ゲインは最大 (b=n-2) にする** — N/S 鎖を最大限使う
-3. **復路幅 w を広げる** — w=3 で Θ(n²)、w=Θ(n) で Θ(n³)
-4. **余計なポートを追加しない** — ポートが多いほど BFS がショートカットを見つけやすい
-5. **nx/ny ポートは (none)** — 境界ブロックを行き止まりにして y<1 や x<1 への脱出を防ぐ
+1. **Keep forward x-gain minimal (a=1)** — Increasing x reduces forward cycles, decreasing y accumulation
+2. **Maximize forward y-gain (b=n-2)** — Use N/S chains to full extent
+3. **Widen return width w** — w=3 gives Θ(n²), w=Θ(n) gives Θ(n³)
+4. **Don't add unnecessary ports** — More ports make it easier for BFS to find shortcuts
+5. **nx/ny ports are (none)** — Make boundary blocks dead ends to prevent escape to y<1 or x<1
