@@ -25,7 +25,7 @@
 #include "solver.h"
 #include "quizmaster.h"
 
-#define VERSION "0.2.2"
+#define VERSION "0.2.3"
 
 /*
  * usage -- print usage information to stderr and exit with code 1.
