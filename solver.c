@@ -16,7 +16,7 @@
 #include <stdio.h>
 
 /* Maximum IDDFS depth limit. */
-#define MAX_DEPTH 200
+#define MAX_DEPTH 1000
 
 /* --- State helpers --- */
 

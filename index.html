@@ -17,8 +17,8 @@ button:hover { background: #2980b9; }
 .legend { margin-top: 8px; font-size: 12px; color: #555; }
 .legend span { margin-right: 14px; }
 .legend .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: middle; margin-right: 3px; }
-#canvas-wrap { overflow: auto; border: 1px solid #ccc; background: #fff; display: inline-block; margin-top: 10px; max-width: 100%; }
-canvas { display: block; }
+.canvas-wrap { border: 1px solid #ccc; background: #fff; margin-top: 10px; max-width: 100%; }
+canvas { display: block; width: 100%; height: auto; }
 </style>
 </head>
 <body>
@@ -33,13 +33,27 @@ canvas { display: block; }
     <textarea id="answer-input">(0,1,E0) -> (1,1,E0) -> (1,0,N0) -> (1,0,N1) -> (1,1,E1) -> (2,1,N1) -> (2,2,E1) -> (3,2,N1) -> (2,3,E0) -> (2,2,N0) -> (1,3,E0) -> (1,2,N0) -> (1,1,N1) -> (0,1,E1)</textarea>
   </div>
 </div>
-<button id="draw-btn">Draw Maze</button>
-<div class="legend">
-  <span><span class="swatch" style="background:#e63946"></span>Path</span>
-  <span><span class="swatch" style="background:#27ae60"></span>Start</span>
-  <span><span class="swatch" style="background:#c0392b"></span>Goal</span>
+<div style="margin-bottom: 8px;">
+  <label><input type="checkbox" id="chk-normal" checked> normal</label>
+  <label style="margin-left: 12px;"><input type="checkbox" id="chk-simple"> x,y only</label>
 </div>
-<div id="canvas-wrap"><canvas id="canvas"></canvas></div>
+<button id="draw-btn">Draw Maze</button>
+<div id="normal-section">
+  <div class="legend">
+    <span><span class="swatch" style="background:#e63946"></span>Path</span>
+    <span><span class="swatch" style="background:#27ae60"></span>Start</span>
+    <span><span class="swatch" style="background:#c0392b"></span>Goal</span>
+  </div>
+  <div id="canvas-wrap" class="canvas-wrap"><canvas id="canvas"></canvas></div>
+</div>
+<div id="simple-section" style="display:none;">
+  <div class="legend">
+    <span><span class="swatch" style="background:#0000ff"></span>Start</span>
+    <span><span class="swatch" style="background:#ff0000"></span>End</span>
+    <span>Color: Blue → Red</span>
+  </div>
+  <div id="canvas-wrap-simple" class="canvas-wrap"><canvas id="canvas-simple"></canvas></div>
+</div>
 
 <script>
 /* Base sizes (at scale=1, these correspond to the "2x" design) */
@@ -193,41 +207,36 @@ function drawCurvedArrowCP(ctx, x1, y1, x2, y2, cpx, cpy, color, lw) {
   ctx.restore();
 }
 
-/* ---- Main draw ---- */
+/* ---- Grid bounds ---- */
 
-function draw() {
-  const maze = parseMaze(document.getElementById('maze-input').value);
-  const path = parsePath(document.getElementById('answer-input').value);
-  const nterm = detectNterm(maze, path);
-
-  /* Compute grid bounds */
-  let minX, maxX, minY, maxY;
+function computeBounds(path) {
   if (path.length > 0) {
-    minX = Infinity; maxX = -Infinity; minY = Infinity; maxY = -Infinity;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const s of path) {
       minX = Math.min(minX, s.x, s.x + (s.dir === 'E' ? 1 : 0));
       maxX = Math.max(maxX, s.x, s.x + (s.dir === 'E' ? 1 : 0));
       minY = Math.min(minY, s.y, s.y + (s.dir === 'N' ? 1 : 0));
       maxY = Math.max(maxY, s.y, s.y + (s.dir === 'N' ? 1 : 0));
     }
-  } else {
-    minX = 0; maxX = 3; minY = 0; maxY = 3;
+    return { minX, maxX, minY, maxY };
   }
+  return { minX: 0, maxX: 3, minY: 0, maxY: 3 };
+}
 
+/* ---- Setup canvas with grid and axis labels ---- */
+
+function setupCanvas(canvasId, wrapId, bounds) {
+  const { minX, maxX, minY, maxY } = bounds;
   const cols = maxX - minX + 1;
   const rows = maxY - minY + 1;
-  const canvas = document.getElementById('canvas');
-  const wrap = document.getElementById('canvas-wrap');
-
-  /* Compute scale to fit available width */
+  const canvas = document.getElementById(canvasId);
+  const wrap = document.getElementById(wrapId);
   const idealW = BASE_MARGIN * 2 + cols * BASE_CELL;
-  const idealH = BASE_MARGIN * 2 + rows * BASE_CELL;
-  const availW = wrap.parentElement.clientWidth - 4; /* subtract border */
+  const availW = wrap.parentElement.clientWidth - 4;
   const scale = Math.min(1, availW / idealW);
-
   const CELL = BASE_CELL * scale;
   const MARGIN = BASE_MARGIN * scale;
-  const S = scale; /* shorthand for scaling other sizes */
+  const S = scale;
 
   canvas.width = MARGIN * 2 + cols * CELL;
   canvas.height = MARGIN * 2 + rows * CELL;
@@ -235,11 +244,6 @@ function draw() {
 
   function bpos(bx, by) {
     return { x: MARGIN + (bx - minX) * CELL, y: MARGIN + (maxY - by) * CELL };
-  }
-  function statePos(s) {
-    const bp = bpos(s.x, s.y);
-    const tp = termLocalPos(s.dir, s.idx, nterm, CELL);
-    return { x: bp.x + tp.x, y: bp.y + tp.y };
   }
 
   /* Clear */
@@ -272,7 +276,22 @@ function draw() {
     ctx.fillText(by, bp.x - 6 * S, bp.y + CELL / 2);
   }
 
-  /* Normal port arrows inside each block (skip x=0 and y=0 boundary blocks) */
+  return { ctx, bpos, CELL, MARGIN, S };
+}
+
+/* ---- Draw normal view ---- */
+
+function drawNormal(maze, path, nterm, bounds) {
+  const { ctx, bpos, CELL, MARGIN, S } = setupCanvas('canvas', 'canvas-wrap', bounds);
+  const { minX, maxX, minY, maxY } = bounds;
+
+  function statePos(s) {
+    const bp = bpos(s.x, s.y);
+    const tp = termLocalPos(s.dir, s.idx, nterm, CELL);
+    return { x: bp.x + tp.x, y: bp.y + tp.y };
+  }
+
+  /* Normal port arrows inside each block */
   for (let bx = minX; bx <= maxX; bx++) {
     for (let by = minY; by <= maxY; by++) {
       if (bx < 1 || by < 1) continue;
@@ -283,15 +302,14 @@ function draw() {
         const fx = bp.x + from.x, fy = bp.y + from.y;
         const tx = bp.x + to.x, ty = bp.y + to.y;
         if (port.src.dir === port.dst.dir) {
-          /* Same edge: draw curved arc bulging toward the cell interior */
           const mx = (fx + tx) / 2, my = (fy + ty) / 2;
           const off = 30 * S;
           let cpx = mx, cpy = my;
           switch (port.src.dir) {
-            case 'E': cpx = mx - off; break; /* bulge left */
-            case 'W': cpx = mx + off; break; /* bulge right */
-            case 'N': cpy = my + off; break; /* bulge down */
-            case 'S': cpy = my - off; break; /* bulge up */
+            case 'E': cpx = mx - off; break;
+            case 'W': cpx = mx + off; break;
+            case 'N': cpy = my + off; break;
+            case 'S': cpy = my - off; break;
           }
           drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
         } else {
@@ -301,7 +319,7 @@ function draw() {
     }
   }
 
-  /* nx port arrows on (0,y) blocks only -- always bulge left (negative x) */
+  /* nx port arrows */
   for (let by = minY; by <= maxY; by++) {
     if (by < 1) continue;
     const bp = bpos(0, by);
@@ -316,7 +334,7 @@ function draw() {
     }
   }
 
-  /* ny port arrows on (x,0) blocks only -- always bulge down (positive y) */
+  /* ny port arrows */
   for (let bx = minX; bx <= maxX; bx++) {
     if (bx < 1) continue;
     const bp = bpos(bx, 0);
@@ -388,6 +406,101 @@ function draw() {
   }
 }
 
+/* ---- Draw simple (x,y only) view ---- */
+
+function drawSimple(path, bounds) {
+  const { minX, maxX, minY, maxY } = bounds;
+  const cols = maxX - minX + 1;
+  const rows = maxY - minY + 1;
+  const CELL = 16;
+  const PAD = 20;
+  const canvas = document.getElementById('canvas-simple');
+  canvas.width = PAD * 2 + cols * CELL;
+  canvas.height = PAD * 2 + rows * CELL;
+  const ctx = canvas.getContext('2d');
+
+  function bpos(bx, by) {
+    return { x: PAD + (bx - minX) * CELL, y: PAD + (maxY - by) * CELL };
+  }
+
+  /* Clear */
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  /* Grid */
+  ctx.strokeStyle = '#ddd';
+  ctx.lineWidth = 1;
+  for (let bx = minX; bx <= maxX; bx++) {
+    for (let by = minY; by <= maxY; by++) {
+      const bp = bpos(bx, by);
+      ctx.strokeRect(bp.x, bp.y, CELL, CELL);
+    }
+  }
+
+  /* Axis labels */
+  ctx.fillStyle = '#999';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (let bx = minX; bx <= maxX; bx++) {
+    const bp = bpos(bx, minY);
+    ctx.fillText(bx, bp.x + CELL / 2, bp.y + CELL + 2);
+  }
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  for (let by = minY; by <= maxY; by++) {
+    const bp = bpos(minX, by);
+    ctx.fillText(by, bp.x - 3, bp.y + CELL / 2);
+  }
+
+  /* Path lines: gradient B->R, 1px */
+  if (path.length > 1) {
+    ctx.lineWidth = 1;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    for (let i = 0; i < path.length - 1; i++) {
+      const t = i / (path.length - 1);
+      const r = Math.round(t * 255);
+      const b = Math.round((1 - t) * 255);
+      ctx.strokeStyle = `rgb(${r},0,${b})`;
+      const p1 = bpos(path[i].x, path[i].y);
+      const p2 = bpos(path[i + 1].x, path[i + 1].y);
+      ctx.beginPath();
+      ctx.moveTo(p1.x + CELL / 2, p1.y + CELL / 2);
+      ctx.lineTo(p2.x + CELL / 2, p2.y + CELL / 2);
+      ctx.stroke();
+    }
+    /* Start dot (blue) and end dot (red) */
+    const sp = bpos(path[0].x, path[0].y);
+    ctx.beginPath();
+    ctx.arc(sp.x + CELL / 2, sp.y + CELL / 2, 3, 0, 2 * Math.PI);
+    ctx.fillStyle = '#0000ff';
+    ctx.fill();
+    const ep = bpos(path[path.length - 1].x, path[path.length - 1].y);
+    ctx.beginPath();
+    ctx.arc(ep.x + CELL / 2, ep.y + CELL / 2, 3, 0, 2 * Math.PI);
+    ctx.fillStyle = '#ff0000';
+    ctx.fill();
+  }
+}
+
+/* ---- Main draw ---- */
+
+function draw() {
+  const maze = parseMaze(document.getElementById('maze-input').value);
+  const path = parsePath(document.getElementById('answer-input').value);
+  const nterm = detectNterm(maze, path);
+  const bounds = computeBounds(path);
+  const showNormal = document.getElementById('chk-normal').checked;
+  const showSimple = document.getElementById('chk-simple').checked;
+
+  document.getElementById('normal-section').style.display = showNormal ? '' : 'none';
+  document.getElementById('simple-section').style.display = showSimple ? '' : 'none';
+
+  if (showNormal) drawNormal(maze, path, nterm, bounds);
+  if (showSimple) drawSimple(path, bounds);
+}
+
 /* Auto-split: if maze textarea contains "Path:", move that part to answer textarea */
 function splitMazeInput() {
   const mazeEl = document.getElementById('maze-input');
@@ -414,7 +527,16 @@ function splitMazeInput() {
 document.getElementById('maze-input').addEventListener('input', splitMazeInput);
 
 function onResize() { draw(); }
+function toggleVisibility() {
+  document.getElementById('normal-section').style.display =
+    document.getElementById('chk-normal').checked ? '' : 'none';
+  document.getElementById('simple-section').style.display =
+    document.getElementById('chk-simple').checked ? '' : 'none';
+}
+
 document.getElementById('draw-btn').addEventListener('click', draw);
+document.getElementById('chk-normal').addEventListener('change', toggleVisibility);
+document.getElementById('chk-simple').addEventListener('change', toggleVisibility);
 window.addEventListener('load', draw);
 window.addEventListener('resize', onResize);
 </script>
