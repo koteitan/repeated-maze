@@ -18,6 +18,7 @@
     - [nterm=6 の例](maze/counter-pump/6-ja.md) — 6ターミナルのカウンターポンプの詳細解析（パス長 257）
   - [ミンスキーダブリングマシン](maze/minsky-doubling/README-ja.md) — レジスタマシン符号化による指数的パス長 O(2^{nterm/12})
     - [k=5 の例](maze/minsky-doubling/5-ja.md) — 5回反復のダブリングマシン（662ステップ）
+  - [hs2maze](maze/hs2maze/README-ja.md) — Haskell 風ステートマシン定義から迷路文字列への変換器
 
 ## ビルド
 
