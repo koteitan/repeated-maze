@@ -9,3 +9,5 @@ The maze uses x-motion (W→E / E→W ports) for register x, y-motion (S→N / N
 ## Examples
 
 - [k=5](5.md) — 5 doubling cycles, nterm=61, path length 662
+- [md5.hs](md5.hs) — Haskell BFS maze solver for the k=5 doubling machine
+- [md3.txt](md3.txt), [md4.txt](md4.txt), [md5.txt](md5.txt) — Maze strings and paths for k=3,4,5

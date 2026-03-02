@@ -76,6 +76,8 @@ ny: (none)
 ## 具体例
 
 - [nterm=6, w=5](6-ja.md) — 各辺6ターミナル、復路幅5、パス長 257
+- [cp6.hs](cp6.hs) — nterm=6 カウンターポンプの Haskell BFS 迷路ソルバー
+- [cp6.txt](cp6.txt) — 迷路文字列とパスデータ
 
 ## nterm=5 の具体例
 

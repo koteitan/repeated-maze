@@ -76,6 +76,8 @@ ny: (none)
 ## Examples
 
 - [nterm=6, w=5](6.md) — 6 terminals per side, return width 5, path length 257
+- [cp6.hs](cp6.hs) — Haskell BFS maze solver for the nterm=6 counter pump
+- [cp6.txt](cp6.txt) — Maze string and path data
 
 ## nterm=5 Examples
 

@@ -9,3 +9,5 @@ x の動き（W→E / E→W ポート）でレジスタ x、y の動き（S→N 
 ## 具体例
 
 - [k=5](5-ja.md) — 5回ダブリング、nterm=61、パス長 662
+- [md5.hs](md5.hs) — k=5 ダブリングマシンの Haskell BFS 迷路ソルバー
+- [md3.txt](md3.txt), [md4.txt](md4.txt), [md5.txt](md5.txt) — k=3,4,5 の迷路文字列とパス
