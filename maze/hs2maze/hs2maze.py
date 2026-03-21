@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""hs2maze.py -- Convert Haskell-style state machine to repeated-maze string.
+"""hs2maze.py -- Convert Haskell-style state machine to undirected repeated-maze.
 
 Input format (stdin or file):
     myfunc :: (Int, Int, Int) -> (Int, Int, Int)
@@ -13,23 +13,23 @@ Each line: (x_expr, y_expr, pc_literal) = func (x_expr, y_expr, pc_literal)
   - pc_literal: integer
   - Only ONE of dx, dy may be nonzero per line.
 
-Mapping to maze:
+Mapping to undirected maze:
   All user pc values map to E/W terminal indices.
   Canonical state: (x, y, E, pc) -- always E-type.
 
   Movement costs in maze steps:
-    x+k:  k   steps  (chain of W->E ports)
-    x-k:  k   steps  (chain of E->W ports)
-    y+k:  k+1 steps  (W->N, (k-1) S->N, S->W)
-    y-k:  k+1 steps  (E->S, (k-1) N->S, N->E)
-    noop: 2   steps  (W->E, E->W)
+    x+k:  k   steps  (chain of W-E ports)
+    x-k:  k   steps  (chain of E-W ports)
+    y+k:  k+1 steps  (W-N, (k-1) S-N, S-W)
+    y-k:  k+1 steps  (W-S, (k-1) N-S, N-W)
+    noop: 2   steps  (W-E, E-W)
 
   Start: W0@(1,1) = E0@(0,1) -> user pc=0
   Goal:  W1@(1,1) = E1@(0,1) -> user pc=1
 
 Usage: python3 hs2maze.py [input.hs]
   Reads from stdin if no file given.
-  Outputs maze string to stdout, diagnostics to stderr.
+  Outputs undirected maze string to stdout, diagnostics to stderr.
 """
 
 import re
@@ -121,7 +121,7 @@ class PortGenerator:
         return self.ports
 
     def _x_plus(self, src, k, dst):
-        """x+k: k ports W->E chain."""
+        """x+k: k ports W-E chain."""
         cur = src
         for i in range(k):
             nxt = dst if i == k - 1 else self.alloc_ew()
@@ -129,7 +129,7 @@ class PortGenerator:
             cur = nxt
 
     def _x_minus(self, src, k, dst):
-        """x-k: k ports E->W chain."""
+        """x-k: k ports E-W chain."""
         cur = src
         for i in range(k):
             nxt = dst if i == k - 1 else self.alloc_ew()
@@ -137,7 +137,7 @@ class PortGenerator:
             cur = nxt
 
     def _y_plus(self, src, k, dst):
-        """y+k: k+1 ports. W->N, (k-1) S->N, S->W."""
+        """y+k: k+1 ports. W-N, (k-1) S-N, S-W."""
         t = self.alloc_ns()
         self.add('W', src, 'N', t)
         for _ in range(k - 1):
@@ -147,7 +147,7 @@ class PortGenerator:
         self.add('S', t, 'W', dst)
 
     def _y_minus(self, src, k, dst):
-        """y-k: k+1 ports. W->S, (k-1) N->S, N->W."""
+        """y-k: k+1 ports. W-S, (k-1) N-S, N-W."""
         t = self.alloc_ns()
         self.add('W', src, 'S', t)
         for _ in range(k - 1):
@@ -157,7 +157,7 @@ class PortGenerator:
         self.add('N', t, 'W', dst)
 
     def _noop(self, src, dst):
-        """dx=0,dy=0: 2 ports. W->E, E->W."""
+        """dx=0,dy=0: 2 ports. W-E, E-W."""
         tmp = self.alloc_ew()
         self.add('W', src, 'E', tmp)
         self.add('E', tmp, 'W', dst)
@@ -174,7 +174,7 @@ def ports_to_maze_string(ports, nterm):
         if key in seen:
             continue
         seen.add(key)
-        normal.append(f"{sd}{si}->{dd}{di}")
+        normal.append(f"{sd}{si}-{dd}{di}")
     normal_str = ', '.join(normal) if normal else '(none)'
     nx_str = ', '.join(nx_list) if nx_list else '(none)'
     ny_str = ', '.join(ny_list) if ny_list else '(none)'
@@ -207,7 +207,7 @@ def main():
 
     print(f"Generated {len(ports)} ports, nterm={nterm}", file=sys.stderr)
     for sd, si, dd, di in ports:
-        print(f"  {sd}{si}->{dd}{di}", file=sys.stderr)
+        print(f"  {sd}{si}-{dd}{di}", file=sys.stderr)
 
     maze_str = ports_to_maze_string(ports, nterm)
     print(maze_str)
