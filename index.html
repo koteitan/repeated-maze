@@ -26,16 +26,17 @@ canvas { display: block; width: 100%; height: auto; }
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
-    <textarea id="maze-input">normal: E0->S0, E1->E0, W0->E0, W1->W0, W1->N1, W1->S1, N0->E1, N0->S1, N1->W0, N1->W1, S0->W0, S1->E0, S1->E1, S1->W0; nx: (none); ny: N0->N1</textarea>
+    <textarea id="maze-input">normal: W0-N0, S0-W2, W2-S1, N1-W1; nx: (none); ny: (none)</textarea>
   </div>
   <div class="field">
     <label for="answer-input">Answer:</label>
-    <textarea id="answer-input">(0,1,E0) -> (1,1,E0) -> (1,0,N0) -> (1,0,N1) -> (1,1,E1) -> (2,1,N1) -> (2,2,E1) -> (3,2,N1) -> (2,3,E0) -> (2,2,N0) -> (1,3,E0) -> (1,2,N0) -> (1,1,N1) -> (0,1,E1)</textarea>
+    <textarea id="answer-input">(0,1,E0) -> (1,1,N0) -> (0,2,E2) -> (1,1,N1) -> (0,1,E1)</textarea>
   </div>
 </div>
 <div style="margin-bottom: 8px;">
   <label><input type="checkbox" id="chk-normal" checked> normal</label>
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-simple"> x,y only</label>
+  <label style="margin-left: 12px;"><input type="checkbox" id="chk-directed"> directed</label>
 </div>
 <button id="draw-btn">Draw Maze</button>
 <div id="normal-section">
@@ -81,7 +82,8 @@ function parseMaze(text) {
     const body = t.substring(ci + 1).trim();
     if (body === '(none)' || !body) continue;
     const ports = body.split(',').map(p => {
-      const parts = p.trim().split('->');
+      const t = p.trim();
+      const parts = t.includes('->') ? t.split('->') : t.split('-');
       if (parts.length !== 2) return null;
       return { src: parseTermName(parts[0]), dst: parseTermName(parts[1]) };
     }).filter(p => p !== null);
@@ -137,7 +139,18 @@ function termInsetPos(dir, idx, nterm) {
   }
 }
 
-/* ---- Arrow drawing ---- */
+/* ---- Edge / Arrow drawing ---- */
+
+function drawLine(ctx, x1, y1, x2, y2, color, lw) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lw;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  ctx.restore();
+}
 
 function drawArrow(ctx, x1, y1, x2, y2, color, lw) {
   const hl = 12 * lw;
@@ -159,30 +172,14 @@ function drawArrow(ctx, x1, y1, x2, y2, color, lw) {
   ctx.restore();
 }
 
-function drawCurvedArrow(ctx, x1, y1, x2, y2, bulge, color, lw) {
-  const dx = x2 - x1, dy = y2 - y1;
-  const len = Math.sqrt(dx * dx + dy * dy) || 1;
-  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
-  /* perpendicular: (-dy, dx) normalized, then flip with negative bulge to go outside */
-  const cpx = mx + bulge * (-dy) / len;
-  const cpy = my + bulge * dx / len;
+function drawCurvedLine(ctx, x1, y1, x2, y2, cpx, cpy, color, lw) {
   ctx.save();
   ctx.strokeStyle = color;
-  ctx.fillStyle = color;
   ctx.lineWidth = lw;
   ctx.beginPath();
   ctx.moveTo(x1, y1);
   ctx.quadraticCurveTo(cpx, cpy, x2, y2);
   ctx.stroke();
-  const hl = 12 * lw;
-  const tx = 2 * (x2 - cpx), ty = 2 * (y2 - cpy);
-  const angle = Math.atan2(ty, tx);
-  ctx.beginPath();
-  ctx.moveTo(x2, y2);
-  ctx.lineTo(x2 - hl * Math.cos(angle - 0.15), y2 - hl * Math.sin(angle - 0.15));
-  ctx.lineTo(x2 - hl * Math.cos(angle + 0.15), y2 - hl * Math.sin(angle + 0.15));
-  ctx.closePath();
-  ctx.fill();
   ctx.restore();
 }
 
@@ -281,7 +278,7 @@ function setupCanvas(canvasId, wrapId, bounds) {
 
 /* ---- Draw normal view ---- */
 
-function drawNormal(maze, path, nterm, bounds) {
+function drawNormal(maze, path, nterm, bounds, directed) {
   const { ctx, bpos, CELL, MARGIN, S } = setupCanvas('canvas', 'canvas-wrap', bounds);
   const { minX, maxX, minY, maxY } = bounds;
 
@@ -291,61 +288,99 @@ function drawNormal(maze, path, nterm, bounds) {
     return { x: bp.x + tp.x, y: bp.y + tp.y };
   }
 
-  /* Normal port arrows inside each block */
+  /* Draw a single port edge (line for undirected, arrow for directed) */
+  function drawPort(fx, fy, tx, ty, sameDir, dirChar) {
+    if (sameDir) {
+      const mx = (fx + tx) / 2, my = (fy + ty) / 2;
+      const off = 30 * S;
+      let cpx = mx, cpy = my;
+      switch (dirChar) {
+        case 'E': cpx = mx - off; break;
+        case 'W': cpx = mx + off; break;
+        case 'N': cpy = my + off; break;
+        case 'S': cpy = my - off; break;
+      }
+      if (directed)
+        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
+      else
+        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
+    } else {
+      if (directed)
+        drawArrow(ctx, fx, fy, tx, ty, '#000', 2 * S);
+      else
+        drawLine(ctx, fx, fy, tx, ty, '#000', 2 * S);
+    }
+  }
+
+  /* Normal port edges inside each block */
   for (let bx = minX; bx <= maxX; bx++) {
     for (let by = minY; by <= maxY; by++) {
       if (bx < 1 || by < 1) continue;
       const bp = bpos(bx, by);
+      const drawn = new Set();
       for (const port of maze.normal) {
+        /* Deduplicate for undirected: skip reverse of already-drawn edge */
+        if (!directed) {
+          const k1 = port.src.dir + port.src.idx + ',' + port.dst.dir + port.dst.idx;
+          const k2 = port.dst.dir + port.dst.idx + ',' + port.src.dir + port.src.idx;
+          if (drawn.has(k2)) continue;
+          drawn.add(k1);
+        }
         const from = termLocalPos(port.src.dir, port.src.idx, nterm, CELL);
         const to = termLocalPos(port.dst.dir, port.dst.idx, nterm, CELL);
-        const fx = bp.x + from.x, fy = bp.y + from.y;
-        const tx = bp.x + to.x, ty = bp.y + to.y;
-        if (port.src.dir === port.dst.dir) {
-          const mx = (fx + tx) / 2, my = (fy + ty) / 2;
-          const off = 30 * S;
-          let cpx = mx, cpy = my;
-          switch (port.src.dir) {
-            case 'E': cpx = mx - off; break;
-            case 'W': cpx = mx + off; break;
-            case 'N': cpy = my + off; break;
-            case 'S': cpy = my - off; break;
-          }
-          drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
-        } else {
-          drawArrow(ctx, fx, fy, tx, ty, '#000', 2 * S);
-        }
+        drawPort(bp.x + from.x, bp.y + from.y, bp.x + to.x, bp.y + to.y,
+                 port.src.dir === port.dst.dir, port.src.dir);
       }
     }
   }
 
-  /* nx port arrows */
+  /* nx port edges */
   for (let by = minY; by <= maxY; by++) {
     if (by < 1) continue;
     const bp = bpos(0, by);
+    const drawn = new Set();
     for (const port of maze.nx) {
+      if (!directed) {
+        const k1 = port.src.idx + ',' + port.dst.idx;
+        const k2 = port.dst.idx + ',' + port.src.idx;
+        if (drawn.has(k2)) continue;
+        drawn.add(k1);
+      }
       const from = termLocalPos('E', port.src.idx, nterm, CELL);
       const to = termLocalPos('E', port.dst.idx, nterm, CELL);
       const fx = bp.x + from.x, fy = bp.y + from.y;
       const tx = bp.x + to.x, ty = bp.y + to.y;
       const mx = (fx + tx) / 2, my = (fy + ty) / 2;
       const cpx = mx - 30 * S, cpy = my;
-      drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
+      if (directed)
+        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
+      else
+        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
     }
   }
 
-  /* ny port arrows */
+  /* ny port edges */
   for (let bx = minX; bx <= maxX; bx++) {
     if (bx < 1) continue;
     const bp = bpos(bx, 0);
+    const drawn = new Set();
     for (const port of maze.ny) {
+      if (!directed) {
+        const k1 = port.src.idx + ',' + port.dst.idx;
+        const k2 = port.dst.idx + ',' + port.src.idx;
+        if (drawn.has(k2)) continue;
+        drawn.add(k1);
+      }
       const from = termLocalPos('N', port.src.idx, nterm, CELL);
       const to = termLocalPos('N', port.dst.idx, nterm, CELL);
       const fx = bp.x + from.x, fy = bp.y + from.y;
       const tx = bp.x + to.x, ty = bp.y + to.y;
       const mx = (fx + tx) / 2, my = (fy + ty) / 2;
       const cpx = mx, cpy = my + 30 * S;
-      drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
+      if (directed)
+        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
+      else
+        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
     }
   }
 
@@ -497,7 +532,8 @@ function draw() {
   document.getElementById('normal-section').style.display = showNormal ? '' : 'none';
   document.getElementById('simple-section').style.display = showSimple ? '' : 'none';
 
-  if (showNormal) drawNormal(maze, path, nterm, bounds);
+  const directed = document.getElementById('chk-directed').checked;
+  if (showNormal) drawNormal(maze, path, nterm, bounds, directed);
   if (showSimple) drawSimple(path, bounds);
 }
 
@@ -537,6 +573,7 @@ function toggleVisibility() {
 document.getElementById('draw-btn').addEventListener('click', draw);
 document.getElementById('chk-normal').addEventListener('change', toggleVisibility);
 document.getElementById('chk-simple').addEventListener('change', toggleVisibility);
+document.getElementById('chk-directed').addEventListener('change', draw);
 window.addEventListener('load', draw);
 window.addEventListener('resize', onResize);
 </script>
