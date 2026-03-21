@@ -25,7 +25,7 @@
 #include "solver.h"
 #include "quizmaster.h"
 
-#define VERSION "0.2.3"
+#define VERSION "0.4.0"
 
 /*
  * usage -- print usage information to stderr and exit with code 1.
@@ -33,10 +33,11 @@
 static void usage(void) {
     fprintf(stderr,
         "Usage:\n"
-        "  repeated-maze solve <maze_string> [--bfs] [-v]\n"
-        "  repeated-maze search <nterm> --max-aport <N> [--min-aport <N>] [--max-len <N>] [--random <seed>] [--bfs] [-v]\n"
-        "  repeated-maze search <nterm> --topdown [--max-len <N>] [--bfs] [-v]\n"
-        "  repeated-maze norm <nterm> <maze_string>\n");
+        "  repeated-maze solve <maze_string> [--bfs] [--directed] [-v]\n"
+        "  repeated-maze search <nterm> --max-aport <N> [--min-aport <N>] [--max-len <N>] [--random <seed>] [--bfs] [--directed] [-v]\n"
+        "  repeated-maze search <nterm> --topdown [--max-len <N>] [--bfs] [--directed] [-v]\n"
+        "  repeated-maze norm <nterm> <maze_string>\n"
+        "\nDefault is undirected graph (A->B also sets B->A). Use --directed for directed graph.\n");
     exit(1);
 }
 
@@ -51,9 +52,12 @@ static int cmd_solve(int argc, char **argv) {
     const char *maze_str = argv[2];
     int use_bfs = 0;
     int verbose = 0;
+    int directed = 0;
     for (int i = 3; i < argc; i++) {
         if (strcmp(argv[i], "--bfs") == 0)
             use_bfs = 1;
+        else if (strcmp(argv[i], "--directed") == 0)
+            directed = 1;
         else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0)
             verbose = 1;
     }
@@ -64,6 +68,9 @@ static int cmd_solve(int argc, char **argv) {
         fprintf(stderr, "Failed to parse maze string\n");
         return 1;
     }
+    m->directed = directed;
+    if (!directed)
+        maze_make_undirected(m);
 
     printf("Maze:\n");
     maze_print(m);
@@ -109,6 +116,7 @@ static int cmd_search(int argc, char **argv) {
     int topdown = 0;
     int use_bfs = 0;
     int verbose = 0;
+    int directed = 0;
 
     for (int i = 3; i < argc; i++) {
         if (strcmp(argv[i], "--max-aport") == 0 && i + 1 < argc)
@@ -123,25 +131,27 @@ static int cmd_search(int argc, char **argv) {
             topdown = 1;
         else if (strcmp(argv[i], "--bfs") == 0)
             use_bfs = 1;
+        else if (strcmp(argv[i], "--directed") == 0)
+            directed = 1;
         else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0)
             verbose = 1;
     }
 
     QMResult r;
     if (topdown) {
-        printf("Top-down search: nterm=%d max_len=%d bfs=%d\n", nterm, max_len, use_bfs);
-        r = quizmaster_topdown_search(nterm, max_len, use_bfs);
+        printf("Top-down search: nterm=%d max_len=%d bfs=%d directed=%d\n", nterm, max_len, use_bfs, directed);
+        r = quizmaster_topdown_search(nterm, max_len, use_bfs, directed);
     } else if (random_seed >= 0) {
         if (max_aport < 0) { fprintf(stderr, "Error: --max-aport <N> is required\n"); usage(); }
-        printf("Random search: nterm=%d min_aport=%d max_aport=%d max_len=%d seed=%d bfs=%d\n",
-               nterm, min_aport, max_aport, max_len, random_seed, use_bfs);
+        printf("Random search: nterm=%d min_aport=%d max_aport=%d max_len=%d seed=%d bfs=%d directed=%d\n",
+               nterm, min_aport, max_aport, max_len, random_seed, use_bfs, directed);
         r = quizmaster_random_search(nterm, min_aport, max_aport, max_len,
-                                     (unsigned int)random_seed, use_bfs);
+                                     (unsigned int)random_seed, use_bfs, directed);
     } else {
         if (max_aport < 0) { fprintf(stderr, "Error: --max-aport <N> is required\n"); usage(); }
-        printf("Search: nterm=%d min_aport=%d max_aport=%d max_len=%d bfs=%d\n",
-               nterm, min_aport, max_aport, max_len, use_bfs);
-        r = quizmaster_search(nterm, min_aport, max_aport, max_len, use_bfs);
+        printf("Search: nterm=%d min_aport=%d max_aport=%d max_len=%d bfs=%d directed=%d\n",
+               nterm, min_aport, max_aport, max_len, use_bfs, directed);
+        r = quizmaster_search(nterm, min_aport, max_aport, max_len, use_bfs, directed);
     }
 
     if (r.best_maze) {

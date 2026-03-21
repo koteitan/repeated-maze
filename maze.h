@@ -59,6 +59,7 @@ typedef struct {
     int nx_nports;
     int ny_nports;
     int total_nports;
+    int directed;       /* 0 = undirected (default), 1 = directed */
     uint8_t *normal_ports;
     uint8_t *nx_ports;
     uint8_t *ny_ports;
@@ -142,6 +143,13 @@ void  maze_fprint(FILE *fp, const Maze *m);
 
 /* maze_print -- shorthand for maze_fprint(stdout, m). */
 void  maze_print(const Maze *m);
+
+/*
+ * maze_make_undirected -- symmetrize all port arrays.
+ * For each port A->B, also set B->A. This converts a directed maze
+ * into an undirected maze where every edge is bidirectional.
+ */
+void maze_make_undirected(Maze *m);
 
 /*
  * maze_print_table -- print the normal block ports as a matrix table,

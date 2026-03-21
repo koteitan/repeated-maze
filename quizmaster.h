@@ -40,7 +40,7 @@ typedef struct {
  * Returns a QMResult with the best maze found. Use qmresult_free() to release.
  */
 QMResult quizmaster_search(int nterm, int min_aport, int max_aport,
-                           int max_len, int use_bfs);
+                           int max_len, int use_bfs, int directed);
 
 /*
  * quizmaster_random_search -- random sampling search for the maze with the
@@ -61,7 +61,8 @@ QMResult quizmaster_search(int nterm, int min_aport, int max_aport,
  * Returns a QMResult with the best maze found. Use qmresult_free() to release.
  */
 QMResult quizmaster_random_search(int nterm, int min_aport, int max_aport,
-                                  int max_len, unsigned int seed, int use_bfs);
+                                  int max_len, unsigned int seed, int use_bfs,
+                                  int directed);
 
 /*
  * quizmaster_topdown_search -- top-down search starting from fully-connected maze.
@@ -81,7 +82,7 @@ QMResult quizmaster_random_search(int nterm, int min_aport, int max_aport,
  *
  * Returns a QMResult with the best maze found. Use qmresult_free() to release.
  */
-QMResult quizmaster_topdown_search(int nterm, int max_len, int use_bfs);
+QMResult quizmaster_topdown_search(int nterm, int max_len, int use_bfs, int directed);
 
 /* qmresult_free -- free the maze and path stored in a QMResult. */
 void qmresult_free(QMResult *r);

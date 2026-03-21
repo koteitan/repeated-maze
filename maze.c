@@ -23,6 +23,7 @@ Maze *maze_create(int nterm) {
     m->nx_nports = nterm * (nterm - 1);
     m->ny_nports = nterm * (nterm - 1);
     m->total_nports = m->normal_nports + m->nx_nports + m->ny_nports;
+    m->directed = 0;
     m->normal_ports = calloc(m->normal_nports > 0 ? m->normal_nports : 1, 1);
     m->nx_ports     = calloc(m->nx_nports > 0 ? m->nx_nports : 1, 1);
     m->ny_ports     = calloc(m->ny_nports > 0 ? m->ny_nports : 1, 1);
@@ -48,6 +49,7 @@ void maze_destroy(Maze *m) {
 /* maze_clone -- create a deep copy of the maze. */
 Maze *maze_clone(const Maze *m) {
     Maze *c = maze_create(m->nterm);
+    c->directed = m->directed;
     memcpy(c->normal_ports, m->normal_ports, m->normal_nports);
     memcpy(c->nx_ports,     m->nx_ports,     m->nx_nports);
     memcpy(c->ny_ports,     m->ny_ports,     m->ny_nports);
@@ -165,6 +167,49 @@ void maze_randomize(Maze *m, uint64_t *rng) {
         maze_set_port(m, i, rng_next(rng) & 1);
 }
 
+/* --- Undirected --- */
+
+/*
+ * maze_make_undirected -- symmetrize all port arrays so that for every
+ * port A->B, the reverse B->A is also set. This converts a directed
+ * maze into an undirected one.
+ */
+void maze_make_undirected(Maze *m) {
+    int n = m->nterm;
+    int n4 = 4 * n;
+
+    /* Normal ports: symmetrize */
+    for (int s = 0; s < n4; s++)
+        for (int d = s + 1; d < n4; d++) {
+            int idx1 = s * n4 + d;
+            int idx2 = d * n4 + s;
+            if (m->normal_ports[idx1] || m->normal_ports[idx2]) {
+                m->normal_ports[idx1] = 1;
+                m->normal_ports[idx2] = 1;
+            }
+        }
+
+    /* nx ports: symmetrize E[si]<->E[di] */
+    for (int si = 0; si < n; si++)
+        for (int di = si + 1; di < n; di++) {
+            int has = maze_nx_port(m, si, di) || maze_nx_port(m, di, si);
+            if (has) {
+                maze_set_nx_port(m, si, di, 1);
+                maze_set_nx_port(m, di, si, 1);
+            }
+        }
+
+    /* ny ports: symmetrize N[si]<->N[di] */
+    for (int si = 0; si < n; si++)
+        for (int di = si + 1; di < n; di++) {
+            int has = maze_ny_port(m, si, di) || maze_ny_port(m, di, si);
+            if (has) {
+                maze_set_ny_port(m, si, di, 1);
+                maze_set_ny_port(m, di, si, 1);
+            }
+        }
+}
+
 /* --- Print --- */
 
 /* Direction name strings indexed by TDIR_* constants. */
@@ -178,41 +223,73 @@ static const char *tdir_name[] = {"E", "W", "N", "S"};
  */
 void maze_fprint(FILE *fp, const Maze *m) {
     int n = m->nterm;
+    int n4 = 4 * n;
     int first;
 
     fprintf(fp, "normal:");
     first = 1;
-    for (int sd = 0; sd < 4; sd++)
-        for (int si = 0; si < n; si++)
-            for (int dd = 0; dd < 4; dd++)
-                for (int di = 0; di < n; di++)
-                    if (maze_normal_port(m, sd, si, dd, di)) {
-                        fprintf(fp, "%s %s%d->%s%d",
-                                first ? "" : ",",
-                                tdir_name[sd], si,
-                                tdir_name[dd], di);
-                        first = 0;
-                    }
+    if (m->directed) {
+        for (int sd = 0; sd < 4; sd++)
+            for (int si = 0; si < n; si++)
+                for (int dd = 0; dd < 4; dd++)
+                    for (int di = 0; di < n; di++)
+                        if (maze_normal_port(m, sd, si, dd, di)) {
+                            fprintf(fp, "%s %s%d->%s%d",
+                                    first ? "" : ",",
+                                    tdir_name[sd], si,
+                                    tdir_name[dd], di);
+                            first = 0;
+                        }
+    } else {
+        /* Undirected: print each edge once (s < d by flat index) */
+        for (int s = 0; s < n4; s++)
+            for (int d = s + 1; d < n4; d++)
+                if (m->normal_ports[s * n4 + d]) {
+                    fprintf(fp, "%s %s%d-%s%d",
+                            first ? "" : ",",
+                            tdir_name[s / n], s % n,
+                            tdir_name[d / n], d % n);
+                    first = 0;
+                }
+    }
     if (first) fprintf(fp, " (none)");
 
     fprintf(fp, "; nx:");
     first = 1;
-    for (int si = 0; si < n; si++)
-        for (int di = 0; di < n; di++)
-            if (di != si && maze_nx_port(m, si, di)) {
-                fprintf(fp, "%s E%d->E%d", first ? "" : ",", si, di);
-                first = 0;
-            }
+    if (m->directed) {
+        for (int si = 0; si < n; si++)
+            for (int di = 0; di < n; di++)
+                if (di != si && maze_nx_port(m, si, di)) {
+                    fprintf(fp, "%s E%d->E%d", first ? "" : ",", si, di);
+                    first = 0;
+                }
+    } else {
+        for (int si = 0; si < n; si++)
+            for (int di = si + 1; di < n; di++)
+                if (maze_nx_port(m, si, di)) {
+                    fprintf(fp, "%s E%d-E%d", first ? "" : ",", si, di);
+                    first = 0;
+                }
+    }
     if (first) fprintf(fp, " (none)");
 
     fprintf(fp, "; ny:");
     first = 1;
-    for (int si = 0; si < n; si++)
-        for (int di = 0; di < n; di++)
-            if (di != si && maze_ny_port(m, si, di)) {
-                fprintf(fp, "%s N%d->N%d", first ? "" : ",", si, di);
-                first = 0;
-            }
+    if (m->directed) {
+        for (int si = 0; si < n; si++)
+            for (int di = 0; di < n; di++)
+                if (di != si && maze_ny_port(m, si, di)) {
+                    fprintf(fp, "%s N%d->N%d", first ? "" : ",", si, di);
+                    first = 0;
+                }
+    } else {
+        for (int si = 0; si < n; si++)
+            for (int di = si + 1; di < n; di++)
+                if (maze_ny_port(m, si, di)) {
+                    fprintf(fp, "%s N%d-N%d", first ? "" : ",", si, di);
+                    first = 0;
+                }
+    }
     if (first) fprintf(fp, " (none)");
 
     fprintf(fp, "\n");

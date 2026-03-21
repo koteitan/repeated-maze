@@ -151,11 +151,12 @@ static int has_abstract_path(const Maze *m) {
  * 4. Stop early if max_len > 0 and best_len >= max_len.
  */
 QMResult quizmaster_search(int nterm, int min_aport, int max_aport,
-                           int max_len, int use_bfs) {
+                           int max_len, int use_bfs, int directed) {
     QMResult result = {NULL, 0, NULL, 0};
     if (nterm < 2) return result;
 
     Maze *m = maze_create(nterm);
+    m->directed = directed;
     int total = m->total_nports;
 
     /* Build candidate list (exclude self-loop ports) */
@@ -199,6 +200,8 @@ QMResult quizmaster_search(int nterm, int min_aport, int max_aport,
             maze_clear(m);
             for (int i = 0; i < k; i++)
                 maze_set_port(m, candidates[combo[i]], 1);
+            if (!directed)
+                maze_make_undirected(m);
 
             /* Pruning 1: normalization -- skip non-canonical forms */
             if (!maze_is_normalized(m)) {
@@ -305,7 +308,8 @@ search_done:
  * is reached.
  */
 QMResult quizmaster_random_search(int nterm, int min_aport, int max_aport,
-                                  int max_len, unsigned int seed, int use_bfs) {
+                                  int max_len, unsigned int seed, int use_bfs,
+                                  int directed) {
     QMResult result = {NULL, 0, NULL, 0};
     if (nterm < 2) return result;
 
@@ -368,6 +372,8 @@ QMResult quizmaster_random_search(int nterm, int min_aport, int max_aport,
         maze_clear(m);
         for (int i = 0; i < k; i++)
             maze_set_port(m, candidates[indices[i]], 1);
+        if (!directed)
+            maze_make_undirected(m);
 
         /* Pruning: abstract terminal reachability */
         if (has_abstract_path(m)) {
@@ -591,7 +597,7 @@ static void maze_to_flat(const Maze *m, uint8_t *data) {
 
 #define TD_MAX_PRIORITY 1000
 
-QMResult quizmaster_topdown_search(int nterm, int max_len, int use_bfs) {
+QMResult quizmaster_topdown_search(int nterm, int max_len, int use_bfs, int directed) {
     QMResult result = {NULL, 0, NULL, 0};
     if (nterm < 2) return result;
 
@@ -603,6 +609,7 @@ QMResult quizmaster_topdown_search(int nterm, int max_len, int use_bfs) {
     sigaction(SIGINT, &sa, &old_sa);
 
     Maze *m = maze_create(nterm);
+    m->directed = directed;
     int total = m->total_nports;
 
     /* Build candidate list (exclude self-loop ports) */
@@ -619,6 +626,8 @@ QMResult quizmaster_topdown_search(int nterm, int max_len, int use_bfs) {
     maze_clear(m);
     for (int i = 0; i < ncand; i++)
         maze_set_port(m, candidates[i], 1);
+    if (!directed)
+        maze_make_undirected(m);
 
     free(candidates);
 
@@ -661,6 +670,8 @@ QMResult quizmaster_topdown_search(int nterm, int max_len, int use_bfs) {
 
         /* Load into maze and solve */
         maze_set_from_array(m, data);
+        if (!directed)
+            maze_make_undirected(m);
 
         int len;
         State *tmp_path = NULL;
