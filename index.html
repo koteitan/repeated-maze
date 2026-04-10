@@ -22,7 +22,7 @@ canvas { display: block; width: 100%; height: auto; }
 </style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:#999">v0.4</span></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:#999">v0.6</span></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -234,6 +234,8 @@ function routeBlockPorts(ports, nterm, cellSize) {
 
   function insertRow(atR) {
     grid.splice(atR, 0, Array(nC).fill(0));
+    hOwner.splice(atR, 0, Array(nC).fill(-1));
+    vOwner.splice(atR, 0, Array(nC).fill(-1));
     nR++;
     for (const cg of chG) {
       if (cg.src.r >= atR) cg.src.r++;
@@ -246,6 +248,8 @@ function routeBlockPorts(ports, nterm, cellSize) {
 
   function insertCol(atC) {
     for (const row of grid) row.splice(atC, 0, 0);
+    for (const row of hOwner) row.splice(atC, 0, -1);
+    for (const row of vOwner) row.splice(atC, 0, -1);
     nC++;
     for (const cg of chG) {
       if (cg.src.c >= atC) cg.src.c++;
@@ -311,11 +315,18 @@ function routeBlockPorts(ports, nterm, cellSize) {
     return nr;
   }
 
+  /* Per-cell ownership tracking for overlap detection */
+  let hOwner = Array.from({length: nR}, () => Array(nC).fill(-1));
+  let vOwner = Array.from({length: nR}, () => Array(nC).fill(-1));
+  let curPortIdx = -1;
+
   /* Place H segments from (r, c1) to (r, c2), respecting direction */
   function placeH(r, c1, c2, route) {
     const step = c1 <= c2 ? 1 : -1;
     for (let c = c1; step > 0 ? c <= c2 : c >= c2; c += step) {
       grid[r][c] |= H;
+      if (hOwner[r][c] === -1) hOwner[r][c] = curPortIdx;
+      else if (hOwner[r][c] !== curPortIdx) hOwner[r][c] = -2; /* conflict */
       route.push({ r, c });
     }
   }
@@ -325,6 +336,8 @@ function routeBlockPorts(ports, nterm, cellSize) {
     const step = r1 <= r2 ? 1 : -1;
     for (let r = r1; step > 0 ? r <= r2 : r >= r2; r += step) {
       grid[r][c] |= V;
+      if (vOwner[r][c] === -1) vOwner[r][c] = curPortIdx;
+      else if (vOwner[r][c] !== curPortIdx) vOwner[r][c] = -2; /* conflict */
       route.push({ r, c });
     }
   }
@@ -345,29 +358,32 @@ function routeBlockPorts(ports, nterm, cellSize) {
     return adjA - adjB;
   });
   for (const i of portOrder) {
+    curPortIdx = i;
     const p = ports[i];
     const sg = chG[i].src, dg = chG[i].dst;
     const route = [];
 
     /* Try HVH route: H(sg.r, sg.c→mc) → V(sg.r→dg.r, mc) → H(dg.r, mc→dg.c) */
     function tryHVH(sg, dg, route) {
-      if (sg.r === dg.r && sg.c !== dg.c) {
-        /* Same row: just horizontal (skip endpoints) */
+      if (sg.r === dg.r && sg.c !== dg.c && sg.r > 0 && sg.r < nR - 1) {
+        /* Same row (interior only — border rows have spines): just horizontal */
         const clo = Math.min(sg.c, dg.c), chi = Math.max(sg.c, dg.c);
         for (let c = clo; c <= chi; c++)
           if (c !== sg.c && c !== dg.c && grid[sg.r][c] & H) return false;
         placeH(sg.r, sg.c, dg.c, route);
         return true;
       }
-      /* Try preferred column: interior first (avoid blocking border cols) */
+      /* Try preferred column: interior first (avoid blocking border cols).
+       * Never use mc === sg.c === dg.c (degenerate: V overlaps spine). */
       let mc = -1;
-      if (dg.c >= 1 && dg.c < nC - 1 && isHVHFree(sg, dg, dg.c)) mc = dg.c;
+      const skipC = (sg.c === dg.c) ? sg.c : -1;
+      if (dg.c >= 1 && dg.c < nC - 1 && dg.c !== skipC && isHVHFree(sg, dg, dg.c)) mc = dg.c;
       if (mc < 0)
         for (let c = 1; c < nC - 1; c++)
-          if (isHVHFree(sg, dg, c)) { mc = c; break; }
+          if (c !== skipC && isHVHFree(sg, dg, c)) { mc = c; break; }
       if (mc < 0)
         for (let c = 0; c < nC; c++)
-          if (isHVHFree(sg, dg, c)) { mc = c; break; }
+          if (c !== skipC && isHVHFree(sg, dg, c)) { mc = c; break; }
       if (mc < 0) return false;
       placeH(sg.r, sg.c, mc, route);
       if (sg.r !== dg.r) placeV(sg.r, dg.r, mc, route);
@@ -377,23 +393,25 @@ function routeBlockPorts(ports, nterm, cellSize) {
 
     /* Try VHV route: V(sg.r→mr, sg.c) → H(mr, sg.c→dg.c) → V(mr→dg.r, dg.c) */
     function tryVHV(sg, dg, route) {
-      if (sg.c === dg.c && sg.r !== dg.r) {
-        /* Same column: just vertical (skip endpoints) */
+      if (sg.c === dg.c && sg.r !== dg.r && sg.c > 0 && sg.c < nC - 1) {
+        /* Same column (interior only — border cols have spines): just vertical */
         const rlo = Math.min(sg.r, dg.r), rhi = Math.max(sg.r, dg.r);
         for (let r = rlo; r <= rhi; r++)
           if (r !== sg.r && r !== dg.r && grid[r][sg.c] & V) return false;
         placeV(sg.r, dg.r, sg.c, route);
         return true;
       }
-      /* Try preferred row: interior first (avoid blocking border rows) */
+      /* Try preferred row: interior first (avoid blocking border rows).
+       * Never use mr === sg.r === dg.r (degenerate: H overlaps spine). */
       let mr = -1;
-      if (dg.r >= 1 && dg.r < nR - 1 && isVHVFree(sg, dg, dg.r)) mr = dg.r;
+      const skipR = (sg.r === dg.r) ? sg.r : -1;
+      if (dg.r >= 1 && dg.r < nR - 1 && dg.r !== skipR && isVHVFree(sg, dg, dg.r)) mr = dg.r;
       if (mr < 0)
         for (let r = 1; r < nR - 1; r++)
-          if (isVHVFree(sg, dg, r)) { mr = r; break; }
+          if (r !== skipR && isVHVFree(sg, dg, r)) { mr = r; break; }
       if (mr < 0)
         for (let r = 0; r < nR; r++)
-          if (isVHVFree(sg, dg, r)) { mr = r; break; }
+          if (r !== skipR && isVHVFree(sg, dg, r)) { mr = r; break; }
       if (mr < 0) return false;
       placeV(sg.r, mr, sg.c, route);
       if (sg.c !== dg.c) placeH(mr, sg.c, dg.c, route);
@@ -407,7 +425,13 @@ function routeBlockPorts(ports, nterm, cellSize) {
       /* Try primary orientation first, then fallback, then insert and retry */
       const first = isLR(p.src.dir) ? tryHVH : tryVHV;
       const second = isLR(p.src.dir) ? tryVHV : tryHVH;
-      let ok = first(sg, dg, route) || second(sg, dg, route);
+      /* Skip VHV for same-column border endpoints (would produce degenerate spine overlap) */
+      const sameColBorder = sg.c === dg.c && (sg.c === 0 || sg.c === nC - 1);
+      const sameRowBorder = sg.r === dg.r && (sg.r === 0 || sg.r === nR - 1);
+      let ok;
+      if (sameColBorder) ok = tryHVH(sg, dg, route);
+      else if (sameRowBorder) ok = tryVHV(sg, dg, route);
+      else ok = first(sg, dg, route) || second(sg, dg, route);
       while (!ok) {
         insertCol(nC - 1);
         insertRow(nR - 1);
@@ -519,7 +543,33 @@ function routeBlockPorts(ports, nterm, cellSize) {
     if (!termPos['S' + i]) termPos['S' + i] = { x: t, y: cellSize };
   }
 
-  return { routes: pixelRoutes, spines, junctions, termPos };
+  /* Step 8: Detect sub-port overlaps.
+   * Two different ports sharing the same H or V in the same cell is an overlap,
+   * UNLESS it's a sub-terminal endpoint (first/last cell of a route).
+   */
+  const endpoints = new Set();
+  for (let pi = 0; pi < allRoutes.length; pi++) {
+    const rt = allRoutes[pi];
+    if (rt.length > 0) {
+      endpoints.add(rt[0].r + ',' + rt[0].c + ',H');
+      endpoints.add(rt[0].r + ',' + rt[0].c + ',V');
+      const last = rt[rt.length - 1];
+      endpoints.add(last.r + ',' + last.c + ',H');
+      endpoints.add(last.r + ',' + last.c + ',V');
+    }
+  }
+
+  const overlaps = [];
+  for (let r = 0; r < nR; r++) {
+    for (let c = 0; c < nC; c++) {
+      if (hOwner[r][c] === -2 && !endpoints.has(r + ',' + c + ',H'))
+        overlaps.push({ r, c, dir: 'H', px: toXY({r, c}) });
+      if (vOwner[r][c] === -2 && !endpoints.has(r + ',' + c + ',V'))
+        overlaps.push({ r, c, dir: 'V', px: toXY({r, c}) });
+    }
+  }
+
+  return { routes: pixelRoutes, spines, junctions, termPos, overlaps };
 }
 
 /* ---- Edge / Arrow drawing ---- */
@@ -1005,6 +1055,14 @@ function drawNormal(maze, path, nterm, bounds, directed) {
     for (let i = 0; i < nterm; i++) {
       for (const d of ['W', 'E', 'N', 'S'])
         if (!gridTermPos[d + i]) errors.push('gridTermPos missing ' + d + i);
+    }
+
+    /* V8: Sub-port overlap detection */
+    if (gridResult && gridResult.overlaps) {
+      for (const ov of gridResult.overlaps) {
+        errors.push('OVERLAP: ' + ov.dir + ' at grid(' + ov.r + ',' + ov.c +
+          ') px(' + ov.px.x.toFixed(1) + ',' + ov.px.y.toFixed(1) + ')');
+      }
     }
 
     /* Output */
