@@ -22,7 +22,7 @@ canvas { display: block; width: 100%; height: auto; }
 </style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:#999">v0.6</span></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:#999">v0.8</span></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -432,10 +432,31 @@ function routeBlockPorts(ports, nterm, cellSize) {
       if (sameColBorder) ok = tryHVH(sg, dg, route);
       else if (sameRowBorder) ok = tryVHV(sg, dg, route);
       else ok = first(sg, dg, route) || second(sg, dg, route);
-      while (!ok) {
-        insertCol(nC - 1);
-        insertRow(nR - 1);
+      for (let _expand = 0; !ok && _expand < 50; _expand++) {
+        /* Rotate through insertion positions: center, near-source, near-dest, midpoint.
+         * Edge-only insertion fails when congestion is in the interior. */
+        const strategies = [
+          [Math.floor(nC / 2), Math.floor(nR / 2)],
+          [sg.c + 1, sg.r + 1],
+          [Math.max(1, dg.c), Math.max(1, dg.r)],
+          [Math.floor((sg.c + dg.c) / 2) + 1, Math.floor((sg.r + dg.r) / 2) + 1],
+          [sg.c > 0 ? sg.c : sg.c + 1, dg.r > 0 ? dg.r : dg.r + 1],
+          [dg.c > 0 ? dg.c : dg.c + 1, sg.r > 0 ? sg.r : sg.r + 1]
+        ];
+        const [ic, ir] = strategies[_expand % strategies.length];
+        insertCol(Math.min(ic, nC - 1));
+        insertRow(Math.min(ir, nR - 1));
         ok = first(sg, dg, route) || second(sg, dg, route);
+      }
+      if (!ok) {
+        /* Fallback: force L-bend (may overlap, but avoids empty route) */
+        if (isLR(p.src.dir)) {
+          placeH(sg.r, sg.c, dg.c, route);
+          if (sg.r !== dg.r) placeV(sg.r, dg.r, dg.c, route);
+        } else {
+          placeV(sg.r, dg.r, sg.c, route);
+          if (sg.c !== dg.c) placeH(dg.r, sg.c, dg.c, route);
+        }
       }
     }
     allRoutes.push(route);
