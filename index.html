@@ -22,7 +22,7 @@ canvas { display: block; width: 100%; height: auto; }
 </style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer</h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:#999">v0.4</span></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -157,7 +157,17 @@ function termInsetPos(dir, idx, nterm) {
  * Returns array of polylines (each is [{x,y}] in block-local coordinates).
  */
 function routeBlockPorts(ports, nterm, cellSize) {
-  if (ports.length === 0) return { routes: [], spines: [] };
+  if (ports.length === 0) {
+    const termPos = {};
+    for (let i = 0; i < nterm; i++) {
+      const t = cellSize * (i + 1) / (nterm + 1);
+      termPos['W' + i] = { x: 0, y: t };
+      termPos['E' + i] = { x: cellSize, y: t };
+      termPos['N' + i] = { x: t, y: 0 };
+      termPos['S' + i] = { x: t, y: cellSize };
+    }
+    return { routes: [], spines: [], junctions: [], termPos };
+  }
 
   const opposite = { E: 'W', W: 'E', N: 'S', S: 'N' };
   const isLR = d => d === 'W' || d === 'E';
@@ -479,7 +489,37 @@ function routeBlockPorts(ports, nterm, cellSize) {
     }
   }
 
-  return { routes: pixelRoutes, spines, junctions };
+  /* Step 7: Build terminal position map (grid-aligned edge positions).
+   * Maps 'W0', 'E2', 'N1', etc. to {x, y} on the block edge.
+   * Used by statePos, nx/ny port drawing, Start/Goal markers.
+   */
+  const termPos = {};
+  for (const [k, arr] of Object.entries(termPorts)) {
+    const dir = k[0];
+    const channels = arr.map(({ pi, end }) => toXY(chG[pi][end]));
+    if (isLR(dir)) {
+      channels.sort((a, b) => a.y - b.y);
+      const edgeX = dir === 'W' ? 0 : cellSize;
+      termPos[k] = { x: edgeX, y: channels[0].y };
+    } else {
+      channels.sort((a, b) => a.x - b.x);
+      const edgeY = dir === 'N' ? 0 : cellSize;
+      termPos[k] = { x: channels[0].x, y: edgeY };
+    }
+  }
+
+  /* Fill in default positions for terminals not participating in any port.
+   * Uses termLocalPos-equivalent equal spacing so that gridTermPos always
+   * has entries for every terminal (W/E/N/S × 0..nterm-1). */
+  for (let i = 0; i < nterm; i++) {
+    const t = cellSize * (i + 1) / (nterm + 1);
+    if (!termPos['W' + i]) termPos['W' + i] = { x: 0, y: t };
+    if (!termPos['E' + i]) termPos['E' + i] = { x: cellSize, y: t };
+    if (!termPos['N' + i]) termPos['N' + i] = { x: t, y: 0 };
+    if (!termPos['S' + i]) termPos['S' + i] = { x: t, y: cellSize };
+  }
+
+  return { routes: pixelRoutes, spines, junctions, termPos };
 }
 
 /* ---- Edge / Arrow drawing ---- */
@@ -625,8 +665,38 @@ function drawNormal(maze, path, nterm, bounds, directed) {
   const { ctx, bpos, CELL, MARGIN, S } = setupCanvas('canvas', 'canvas-wrap', bounds);
   const { minX, maxX, minY, maxY } = bounds;
 
+  /* Compute grid-aligned terminal positions and routes for this maze */
+  let gridTermPos = null;
+  let gridResult = null;
+  if (!directed) {
+    const deduped0 = [];
+    const seen0 = new Set();
+    for (const port of maze.normal) {
+      const k1 = port.src.dir + port.src.idx + ',' + port.dst.dir + port.dst.idx;
+      const k2 = port.dst.dir + port.dst.idx + ',' + port.src.dir + port.src.idx;
+      if (seen0.has(k2)) continue;
+      seen0.add(k1);
+      deduped0.push(port);
+    }
+    gridResult = routeBlockPorts(deduped0, nterm, CELL);
+    gridTermPos = gridResult.termPos;
+  }
+
   function statePos(s) {
     const bp = bpos(s.x, s.y);
+    if (gridTermPos) {
+      /* E[i]@(x,y) = W[i]@(x+1,y): use W[i]'s y at the right edge of block (x,y) */
+      /* N[i]@(x,y) = S[i]@(x,y+1): use N[i]'s x at the bottom edge of block (x,y) ... wait, N is top */
+      if (s.dir === 'E') {
+        const wk = 'W' + s.idx;
+        if (gridTermPos[wk])
+          return { x: bp.x + CELL, y: bp.y + gridTermPos[wk].y };
+      } else if (s.dir === 'N') {
+        const sk = 'S' + s.idx;
+        if (gridTermPos[sk])
+          return { x: bp.x + gridTermPos[sk].x, y: bp.y };
+      }
+    }
     const tp = termLocalPos(s.dir, s.idx, nterm, CELL);
     return { x: bp.x + tp.x, y: bp.y + tp.y };
   }
@@ -674,17 +744,7 @@ function drawNormal(maze, path, nterm, bounds, directed) {
   /* Normal port edges inside each block */
   if (!directed) {
     /* Undirected: orthogonal routing with sub-block grid */
-    /* Deduplicate ports (keep one per undirected edge) */
-    const deduped = [];
-    const seen = new Set();
-    for (const port of maze.normal) {
-      const k1 = port.src.dir + port.src.idx + ',' + port.dst.dir + port.dst.idx;
-      const k2 = port.dst.dir + port.dst.idx + ',' + port.src.dir + port.src.idx;
-      if (seen.has(k2)) continue;
-      seen.add(k1);
-      deduped.push(port);
-    }
-    const { routes, spines, junctions } = routeBlockPorts(deduped, nterm, CELL);
+    const { routes, spines, junctions } = gridResult;
     for (let bx = minX; bx <= maxX; bx++) {
       for (let by = minY; by <= maxY; by++) {
         if (bx < 1 || by < 1) continue;
@@ -718,7 +778,7 @@ function drawNormal(maze, path, nterm, bounds, directed) {
     }
   }
 
-  /* nx port edges */
+  /* nx port edges — use grid positions in undirected mode */
   for (let by = minY; by <= maxY; by++) {
     if (by < 1) continue;
     const bp = bpos(0, by);
@@ -730,8 +790,14 @@ function drawNormal(maze, path, nterm, bounds, directed) {
         if (drawn.has(k2)) continue;
         drawn.add(k1);
       }
-      const from = termLocalPos('E', port.src.idx, nterm, CELL);
-      const to = termLocalPos('E', port.dst.idx, nterm, CELL);
+      /* nx ports: E terminals at x=0 boundary. Use W channel y for grid alignment. */
+      const fwk = 'W' + port.src.idx, twk = 'W' + port.dst.idx;
+      const from = (!directed && gridTermPos && gridTermPos[fwk])
+        ? { x: CELL, y: gridTermPos[fwk].y }
+        : termLocalPos('E', port.src.idx, nterm, CELL);
+      const to = (!directed && gridTermPos && gridTermPos[twk])
+        ? { x: CELL, y: gridTermPos[twk].y }
+        : termLocalPos('E', port.dst.idx, nterm, CELL);
       const fx = bp.x + from.x, fy = bp.y + from.y;
       const tx = bp.x + to.x, ty = bp.y + to.y;
       const mx = (fx + tx) / 2, my = (fy + ty) / 2;
@@ -743,7 +809,7 @@ function drawNormal(maze, path, nterm, bounds, directed) {
     }
   }
 
-  /* ny port edges */
+  /* ny port edges — use grid positions in undirected mode */
   for (let bx = minX; bx <= maxX; bx++) {
     if (bx < 1) continue;
     const bp = bpos(bx, 0);
@@ -755,8 +821,15 @@ function drawNormal(maze, path, nterm, bounds, directed) {
         if (drawn.has(k2)) continue;
         drawn.add(k1);
       }
-      const from = termLocalPos('N', port.src.idx, nterm, CELL);
-      const to = termLocalPos('N', port.dst.idx, nterm, CELL);
+      /* ny ports: N terminals at y=0 boundary. N[i]@(bx,0) = S[i]@(bx,1),
+       * so use S channel x for grid alignment with the adjacent normal block. */
+      const fsk = 'S' + port.src.idx, tsk = 'S' + port.dst.idx;
+      const from = (!directed && gridTermPos && gridTermPos[fsk])
+        ? { x: gridTermPos[fsk].x, y: 0 }
+        : termLocalPos('N', port.src.idx, nterm, CELL);
+      const to = (!directed && gridTermPos && gridTermPos[tsk])
+        ? { x: gridTermPos[tsk].x, y: 0 }
+        : termLocalPos('N', port.dst.idx, nterm, CELL);
       const fx = bp.x + from.x, fy = bp.y + from.y;
       const tx = bp.x + to.x, ty = bp.y + to.y;
       const mx = (fx + tx) / 2, my = (fy + ty) / 2;
@@ -788,7 +861,7 @@ function drawNormal(maze, path, nterm, bounds, directed) {
     ctx.fillText(label, pos.x - 18 * S, pos.y);
   }
 
-  /* Path line */
+  /* Path line — use L-bends instead of diagonal lines */
   if (path.length > 1) {
     ctx.save();
     ctx.strokeStyle = '#e63946';
@@ -799,7 +872,22 @@ function drawNormal(maze, path, nterm, bounds, directed) {
     let p0 = statePos(path[0]);
     ctx.moveTo(p0.x, p0.y);
     for (let i = 1; i < path.length; i++) {
+      const prev = statePos(path[i - 1]);
       const p = statePos(path[i]);
+      const dx = Math.abs(p.x - prev.x), dy = Math.abs(p.y - prev.y);
+      if (dx > 0.5 && dy > 0.5) {
+        /* Determine L-bend direction based on state types:
+         * E-type state is on a vertical edge (left/right) → approach horizontally
+         * N-type state is on a horizontal edge (top/bottom) → approach vertically
+         * For the arriving state (path[i]), use its type to decide last segment. */
+        if (path[i].dir === 'N') {
+          /* Arriving at top/bottom edge: last segment is vertical → horizontal first */
+          ctx.lineTo(p.x, prev.y);
+        } else {
+          /* Arriving at left/right edge: last segment is horizontal → vertical first */
+          ctx.lineTo(prev.x, p.y);
+        }
+      }
       ctx.lineTo(p.x, p.y);
     }
     ctx.stroke();
@@ -821,6 +909,110 @@ function drawNormal(maze, path, nterm, bounds, directed) {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(i.toString(), p.x, p.y);
+    }
+  }
+
+  /* ---- Verification framework ---- */
+  if (!directed && gridTermPos) {
+    const errors = [];
+    const EPS = 0.5;
+
+    /* V1: nx ports — curve endpoints must match W channel y */
+    for (const port of maze.nx) {
+      const wSrc = gridTermPos['W' + port.src.idx];
+      const wDst = gridTermPos['W' + port.dst.idx];
+      if (!wSrc) errors.push('nx: W' + port.src.idx + ' missing from gridTermPos');
+      if (!wDst) errors.push('nx: W' + port.dst.idx + ' missing from gridTermPos');
+    }
+
+    /* V2: ny ports — curve endpoints must match S channel x */
+    for (const port of maze.ny) {
+      const sSrc = gridTermPos['S' + port.src.idx];
+      const sDst = gridTermPos['S' + port.dst.idx];
+      if (!sSrc) errors.push('ny: S' + port.src.idx + ' missing from gridTermPos');
+      if (!sDst) errors.push('ny: S' + port.dst.idx + ' missing from gridTermPos');
+    }
+
+    /* V3: nx curve y must match adjacent normal block's W spine y */
+    /* The nx curve is drawn at bp(0,by) + {x:CELL, y:termPos['W'+idx].y}
+     * The normal block spine at bp(1,by) has W[idx] at {x:0, y:termPos['W'+idx].y}
+     * These share the same CELL boundary, so y must match: both use termPos['W'+idx].y ✓
+     * But verify the spine actually contains that y */
+    if (gridResult) {
+      for (const port of maze.nx) {
+        for (const idx of [port.src.idx, port.dst.idx]) {
+          const wPos = gridTermPos['W' + idx];
+          /* Check: does any spine segment cover this y at x=0? */
+          let found = false;
+          for (const sp of gridResult.spines) {
+            if (sp.length >= 2 && Math.abs(sp[0].x) < EPS) {
+              const ys = sp.map(p => p.y);
+              const minY = Math.min(...ys), maxY = Math.max(...ys);
+              if (wPos.y >= minY - EPS && wPos.y <= maxY + EPS) found = true;
+            }
+            if (sp.length >= 2 && Math.abs(sp[0].y - wPos.y) < EPS && Math.abs(sp[1].y - wPos.y) < EPS) {
+              if (Math.min(sp[0].x, sp[1].x) < EPS) found = true;
+            }
+          }
+          if (!found) errors.push('nx: W' + idx + ' y=' + wPos.y.toFixed(1) + ' not connected to any spine at x=0');
+        }
+      }
+    }
+
+    /* V4: ny curve x must match adjacent normal block's S spine x */
+    if (gridResult) {
+      for (const port of maze.ny) {
+        for (const idx of [port.src.idx, port.dst.idx]) {
+          const sPos = gridTermPos['S' + idx];
+          let found = false;
+          for (const sp of gridResult.spines) {
+            if (sp.length >= 2 && Math.abs(sp[0].y - CELL) < EPS) {
+              const xs = sp.map(p => p.x);
+              const minX = Math.min(...xs), maxX = Math.max(...xs);
+              if (sPos.x >= minX - EPS && sPos.x <= maxX + EPS) found = true;
+            }
+            if (sp.length >= 2 && Math.abs(sp[0].x - sPos.x) < EPS && Math.abs(sp[1].x - sPos.x) < EPS) {
+              if (Math.max(sp[0].y, sp[1].y) > CELL - EPS) found = true;
+            }
+          }
+          if (!found) errors.push('ny: S' + idx + ' x=' + sPos.x.toFixed(1) + ' not connected to any spine at y=CELL');
+        }
+      }
+    }
+
+    /* V5: Answer path — no diagonal lines between consecutive states */
+    if (path.length > 1) {
+      for (let i = 0; i < path.length - 1; i++) {
+        const a = statePos(path[i]), b = statePos(path[i + 1]);
+        const dx = Math.abs(a.x - b.x), dy = Math.abs(a.y - b.y);
+        if (dx > EPS && dy > EPS) {
+          errors.push('path[' + i + ']->[' + (i+1) + ']: diagonal (' +
+            a.x.toFixed(1) + ',' + a.y.toFixed(1) + ')->(' +
+            b.x.toFixed(1) + ',' + b.y.toFixed(1) + ') dx=' + dx.toFixed(1) + ' dy=' + dy.toFixed(1));
+        }
+      }
+    }
+
+    /* V6: Start/Goal y must match W0/W1 */
+    const w0y = gridTermPos['W0'] ? gridTermPos['W0'].y : null;
+    const w1y = gridTermPos['W1'] ? gridTermPos['W1'].y : null;
+    if (w0y !== null && Math.abs(startPos.y - (bpos(0,1).y + w0y)) > EPS)
+      errors.push('Start y=' + startPos.y.toFixed(1) + ' != W0 y=' + (bpos(0,1).y + w0y).toFixed(1));
+    if (w1y !== null && Math.abs(goalPos.y - (bpos(0,1).y + w1y)) > EPS)
+      errors.push('Goal y=' + goalPos.y.toFixed(1) + ' != W1 y=' + (bpos(0,1).y + w1y).toFixed(1));
+
+    /* V7: gridTermPos completeness */
+    for (let i = 0; i < nterm; i++) {
+      for (const d of ['W', 'E', 'N', 'S'])
+        if (!gridTermPos[d + i]) errors.push('gridTermPos missing ' + d + i);
+    }
+
+    /* Output */
+    if (errors.length === 0) {
+      console.log('%c[Viewer Verify] ALL PASS', 'color:green;font-weight:bold');
+    } else {
+      console.log('%c[Viewer Verify] ' + errors.length + ' ERRORS:', 'color:red;font-weight:bold');
+      for (const e of errors) console.log('  ' + e);
     }
   }
 }
