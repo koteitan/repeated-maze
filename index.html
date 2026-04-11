@@ -22,7 +22,7 @@ canvas { display: block; width: 100%; height: auto; }
 </style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:#999">v1.0</span><!-- deterministic routing --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:#999">v1.2</span><!-- terminal alignment --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -404,6 +404,22 @@ function routeBlockPorts(ports, nterm, cellSize) {
     if (!termPos['E' + i]) termPos['E' + i] = { x: cellSize, y: t };
     if (!termPos['N' + i]) termPos['N' + i] = { x: t, y: 0 };
     if (!termPos['S' + i]) termPos['S' + i] = { x: t, y: cellSize };
+  }
+
+  /* Align E with W, S with N: same terminal idx must share the same y/x
+   * at block boundaries. Runs after defaults so all terminals have entries.
+   * Add bridge spines connecting E-channel / S-channel grid positions to
+   * the aligned W-channel / N-channel positions. */
+  for (let i = 0; i < nterm; i++) {
+    const eChY = termPos['E' + i].y;
+    termPos['E' + i] = { x: cellSize, y: termPos['W' + i].y };
+    if (Math.abs(eChY - termPos['E' + i].y) > 0.5)
+      spines.push([{ x: cellSize, y: eChY }, { x: cellSize, y: termPos['E' + i].y }]);
+
+    const sChX = termPos['S' + i].x;
+    termPos['S' + i] = { x: termPos['N' + i].x, y: cellSize };
+    if (Math.abs(sChX - termPos['S' + i].x) > 0.5)
+      spines.push([{ x: sChX, y: cellSize }, { x: termPos['N' + i].x, y: cellSize }]);
   }
 
   /* Step 8: Detect sub-port overlaps (should always be empty with deterministic routing). */
