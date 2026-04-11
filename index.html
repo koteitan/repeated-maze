@@ -22,7 +22,7 @@ canvas { display: block; width: 100%; height: auto; }
 </style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:#999">v0.8</span></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:#999">v1.0</span><!-- deterministic routing --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -144,15 +144,13 @@ function termInsetPos(dir, idx, nterm) {
 /*
  * routeBlockPorts -- compute orthogonal polyline routes for all normal ports.
  *
- * Algorithm (from diagonal.md):
- * 1. Count ports per side. p_WE = max(p_W,p_E), p_SN = max(p_S,p_N).
- * 2. Create sub-block grid: (p_SN+2) rows × (p_WE+2) columns.
- *    Row 0 = S border, row p_SN+1 = N border.
- *    Col 0 = W border, col p_WE+1 = E border.
- * 3. Assign each port-end a channel (row for W/E, col for N/S).
- * 4. Build sub-terminals (branching spines) for terminals with multiple ports.
- * 5. Route: adjacent sides → L-bend, opposite sides → Z-bend, same side → U-bend.
- * 6. Collision avoidance: insert rows/columns when non-crossing overlaps occur.
+ * Algorithm (from diagonal2.md): deterministic collision-free routing.
+ * 1. Count ports per side. Assign channel indices per terminal.
+ * 2. Classify ports: adjacent (L-bend) vs opposite/same (Z/U-bend).
+ * 3. Allocate dedicated middle rows (mH) / columns (mV) for Z/U-bends.
+ * 4. Pre-compute grid size: nR = 1+pW+pE+mH+1, nC = 1+pN+pS+mV+1.
+ * 5. Route: L-bend at channel intersection, Z/U-bend via dedicated middle channel.
+ * 6. No collision search or grid expansion needed — overlaps cannot occur.
  *
  * Returns array of polylines (each is [{x,y}] in block-local coordinates).
  */
@@ -166,7 +164,7 @@ function routeBlockPorts(ports, nterm, cellSize) {
       termPos['N' + i] = { x: t, y: 0 };
       termPos['S' + i] = { x: t, y: cellSize };
     }
-    return { routes: [], spines: [], junctions: [], termPos };
+    return { routes: [], spines: [], junctions: [], termPos, overlaps: [] };
   }
 
   const opposite = { E: 'W', W: 'E', N: 'S', S: 'N' };
@@ -196,26 +194,48 @@ function routeBlockPorts(ports, nterm, cellSize) {
   }
   const pW = sideCh.W, pE = sideCh.E, pN = sideCh.N, pS = sideCh.S;
 
-  /* Step 2: Grid-based routing with post-hoc row/column insertion.
+  /* Step 2: Deterministic grid sizing with dedicated middle channels.
    *
-   * Grid cells: grid[r][c] = bitflags (1=H segment, 2=V segment).
-   * H+V in same cell = crossing (OK).
-   * Two H or two V in same cell = collision → insert row or column.
+   * Classify each port as adjacent (L-bend) or opposite/same (Z/U-bend).
+   * Z/U-bends with isLR(src) need a dedicated V middle column (mV).
+   * Z/U-bends with !isLR(src) need a dedicated H middle row (mH).
    *
-   * W and E get SEPARATE rows (no sharing) to prevent H conflicts.
-   * N and S get SEPARATE columns (no sharing).
-   *
-   * Rows: 0=N-border, 1..pW=W channels, pW+1..pW+pE=E channels, pW+pE+1=S-border
-   * Cols: 0=W-border, 1..pN=N channels, pN+1..pN+pS=S channels, pN+pS+1=E-border
+   * Rows: 0=N-border, 1..pW=W channels, pW+1..pW+pE=E channels,
+   *        pW+pE+1..pW+pE+mH=H middles, pW+pE+mH+1=S-border
+   * Cols: 0=W-border, 1..pN=N channels, pN+1..pN+pS=S channels,
+   *        pN+pS+1..pN+pS+mV=V middles, pN+pS+mV+1=E-border
    */
+  const isAdj = i => {
+    const p = ports[i];
+    return p.src.dir !== p.dst.dir && p.src.dir !== opposite[p.dst.dir];
+  };
+
+  let mH = 0, mV = 0;
+  const midRow = new Array(ports.length).fill(-1);
+  const midCol = new Array(ports.length).fill(-1);
+  /* Routing order: adjacent-side ports (L-bends) first, then opposite/same-side */
+  const portOrder = ports.map((_, i) => i);
+  portOrder.sort((a, b) => {
+    const adjA = isAdj(a) ? 0 : 1;
+    const adjB = isAdj(b) ? 0 : 1;
+    return adjA - adjB;
+  });
+  for (const i of portOrder) {
+    if (isAdj(i)) continue;
+    if (isLR(ports[i].src.dir)) {
+      midCol[i] = mV++;
+    } else {
+      midRow[i] = mH++;
+    }
+  }
+
+  const nR = 1 + pW + pE + mH + 1;
+  const nC = 1 + pN + pS + mV + 1;
+
+  const grid = Array.from({length: nR}, () => Array(nC).fill(0));
   const H = 1, V = 2;
-  let nR = pW + pE + 2, nC = pN + pS + 2;
-  if (nR < 3) nR = 3;
-  if (nC < 3) nC = 3;
 
-  let grid = Array.from({length: nR}, () => Array(nC).fill(0));
-
-  /* Channel grid positions (mutable on insert) */
+  /* Channel grid positions */
   function mkChG(dir, ch) {
     switch (dir) {
       case 'W': return { r: ch + 1, c: 0 };
@@ -229,234 +249,71 @@ function routeBlockPorts(ports, nterm, cellSize) {
     chG.push({ src: mkChG(ports[i].src.dir, chMap[i].src),
                dst: mkChG(ports[i].dst.dir, chMap[i].dst) });
 
-  /* All route paths as grid coords */
-  const allRoutes = [];
-
-  function insertRow(atR) {
-    grid.splice(atR, 0, Array(nC).fill(0));
-    hOwner.splice(atR, 0, Array(nC).fill(-1));
-    vOwner.splice(atR, 0, Array(nC).fill(-1));
-    nR++;
-    for (const cg of chG) {
-      if (cg.src.r >= atR) cg.src.r++;
-      if (cg.dst.r >= atR) cg.dst.r++;
-    }
-    for (const rt of allRoutes)
-      for (const pt of rt)
-        if (pt.r >= atR) pt.r++;
-  }
-
-  function insertCol(atC) {
-    for (const row of grid) row.splice(atC, 0, 0);
-    for (const row of hOwner) row.splice(atC, 0, -1);
-    for (const row of vOwner) row.splice(atC, 0, -1);
-    nC++;
-    for (const cg of chG) {
-      if (cg.src.c >= atC) cg.src.c++;
-      if (cg.dst.c >= atC) cg.dst.c++;
-    }
-    for (const rt of allRoutes)
-      for (const pt of rt)
-        if (pt.c >= atC) pt.c++;
-  }
-
-  /* Check if an H→V→H route is collision-free.
-   * Skip source cell (sg) and destination cell (dg) — they are sub-terminal
-   * cells where multiple routes naturally share the same cell. */
-  function isHVHFree(sg, dg, mc) {
-    /* H1: sg.r from sg.c to mc (skip sg.c) */
-    const c1lo = Math.min(sg.c, mc), c1hi = Math.max(sg.c, mc);
-    for (let c = c1lo; c <= c1hi; c++)
-      if (c !== sg.c && grid[sg.r][c] & H) return false;
-    /* V: sg.r to dg.r at mc */
-    const rlo = Math.min(sg.r, dg.r), rhi = Math.max(sg.r, dg.r);
-    for (let r = rlo; r <= rhi; r++)
-      if (grid[r][mc] & V) return false;
-    /* H2: dg.r from mc to dg.c (skip dg.c) */
-    const c2lo = Math.min(mc, dg.c), c2hi = Math.max(mc, dg.c);
-    for (let c = c2lo; c <= c2hi; c++)
-      if (c !== dg.c && grid[dg.r][c] & H) return false;
-    return true;
-  }
-
-  /* Check if a V→H→V route is collision-free.
-   * Skip source cell (sg) and destination cell (dg). */
-  function isVHVFree(sg, dg, mr) {
-    /* V1: sg.r to mr at sg.c (skip sg.r) */
-    const r1lo = Math.min(sg.r, mr), r1hi = Math.max(sg.r, mr);
-    for (let r = r1lo; r <= r1hi; r++)
-      if (r !== sg.r && grid[r][sg.c] & V) return false;
-    /* H: mr from sg.c to dg.c */
-    const clo = Math.min(sg.c, dg.c), chi = Math.max(sg.c, dg.c);
-    for (let c = clo; c <= chi; c++)
-      if (grid[mr][c] & H) return false;
-    /* V2: mr to dg.r at dg.c (skip dg.r) */
-    const r2lo = Math.min(mr, dg.r), r2hi = Math.max(mr, dg.r);
-    for (let r = r2lo; r <= r2hi; r++)
-      if (r !== dg.r && grid[r][dg.c] & V) return false;
-    return true;
-  }
-
-  /* Find a free column for H→V→H route, checking all 3 segments */
-  function findFreeCol(sg, dg) {
-    for (let c = 1; c < nC - 1; c++)
-      if (isHVHFree(sg, dg, c)) return c;
-    const nc = nC - 1;
-    insertCol(nc);
-    return nc;
-  }
-
-  /* Find a free row for V→H→V route, checking all 3 segments */
-  function findFreeRow(sg, dg) {
-    for (let r = 1; r < nR - 1; r++)
-      if (isVHVFree(sg, dg, r)) return r;
-    const nr = nR - 1;
-    insertRow(nr);
-    return nr;
-  }
-
   /* Per-cell ownership tracking for overlap detection */
-  let hOwner = Array.from({length: nR}, () => Array(nC).fill(-1));
-  let vOwner = Array.from({length: nR}, () => Array(nC).fill(-1));
+  const hOwner = Array.from({length: nR}, () => Array(nC).fill(-1));
+  const vOwner = Array.from({length: nR}, () => Array(nC).fill(-1));
   let curPortIdx = -1;
 
-  /* Place H segments from (r, c1) to (r, c2), respecting direction */
+  /* Place H segments from (r, c1) to (r, c2) */
   function placeH(r, c1, c2, route) {
     const step = c1 <= c2 ? 1 : -1;
     for (let c = c1; step > 0 ? c <= c2 : c >= c2; c += step) {
       grid[r][c] |= H;
       if (hOwner[r][c] === -1) hOwner[r][c] = curPortIdx;
-      else if (hOwner[r][c] !== curPortIdx) hOwner[r][c] = -2; /* conflict */
+      else if (hOwner[r][c] !== curPortIdx) hOwner[r][c] = -2;
       route.push({ r, c });
     }
   }
 
-  /* Place V segments from (r1, c) to (r2, c), respecting direction */
+  /* Place V segments from (r1, c) to (r2, c) */
   function placeV(r1, r2, c, route) {
     const step = r1 <= r2 ? 1 : -1;
     for (let r = r1; step > 0 ? r <= r2 : r >= r2; r += step) {
       grid[r][c] |= V;
       if (vOwner[r][c] === -1) vOwner[r][c] = curPortIdx;
-      else if (vOwner[r][c] !== curPortIdx) vOwner[r][c] = -2; /* conflict */
+      else if (vOwner[r][c] !== curPortIdx) vOwner[r][c] = -2;
       route.push({ r, c });
     }
   }
 
-  /* Step 3: Route each port on the grid.
-   * Unified approach: every route is H → V → H (for LR src) or V → H → V (for NS src).
-   * L-bends are a special case where the first or last segment is zero-length.
-   * The vertical/horizontal mid-segment uses a collision-free column/row.
-   *
-   * Routing order: adjacent-side ports (L-bends) first, then opposite/same-side
-   * (Z/U-bends). L-bends are more constrained so they get priority.
+  /* Step 3: Route each port deterministically — no collision search needed.
+   * Adjacent (L-bend): H on sg.r to dg.c, then V to dg.r (or V then H).
+   * Opposite/Same (Z/U-bend): H1→V(midCol)→H2 or V1→H(midRow)→V2.
    */
-  const portOrder = ports.map((_, i) => i);
-  portOrder.sort((a, b) => {
-    const pa = ports[a], pb = ports[b];
-    const adjA = pa.src.dir !== pa.dst.dir && pa.src.dir !== opposite[pa.dst.dir] ? 0 : 1;
-    const adjB = pb.src.dir !== pb.dst.dir && pb.src.dir !== opposite[pb.dst.dir] ? 0 : 1;
-    return adjA - adjB;
-  });
+  const allRoutes = [];
   for (const i of portOrder) {
     curPortIdx = i;
     const p = ports[i];
     const sg = chG[i].src, dg = chG[i].dst;
     const route = [];
 
-    /* Try HVH route: H(sg.r, sg.c→mc) → V(sg.r→dg.r, mc) → H(dg.r, mc→dg.c) */
-    function tryHVH(sg, dg, route) {
-      if (sg.r === dg.r && sg.c !== dg.c && sg.r > 0 && sg.r < nR - 1) {
-        /* Same row (interior only — border rows have spines): just horizontal */
-        const clo = Math.min(sg.c, dg.c), chi = Math.max(sg.c, dg.c);
-        for (let c = clo; c <= chi; c++)
-          if (c !== sg.c && c !== dg.c && grid[sg.r][c] & H) return false;
-        placeH(sg.r, sg.c, dg.c, route);
-        return true;
-      }
-      /* Try preferred column: interior first (avoid blocking border cols).
-       * Never use mc === sg.c === dg.c (degenerate: V overlaps spine). */
-      let mc = -1;
-      const skipC = (sg.c === dg.c) ? sg.c : -1;
-      if (dg.c >= 1 && dg.c < nC - 1 && dg.c !== skipC && isHVHFree(sg, dg, dg.c)) mc = dg.c;
-      if (mc < 0)
-        for (let c = 1; c < nC - 1; c++)
-          if (c !== skipC && isHVHFree(sg, dg, c)) { mc = c; break; }
-      if (mc < 0)
-        for (let c = 0; c < nC; c++)
-          if (c !== skipC && isHVHFree(sg, dg, c)) { mc = c; break; }
-      if (mc < 0) return false;
-      placeH(sg.r, sg.c, mc, route);
-      if (sg.r !== dg.r) placeV(sg.r, dg.r, mc, route);
-      if (mc !== dg.c) placeH(dg.r, mc, dg.c, route);
-      return true;
-    }
-
-    /* Try VHV route: V(sg.r→mr, sg.c) → H(mr, sg.c→dg.c) → V(mr→dg.r, dg.c) */
-    function tryVHV(sg, dg, route) {
-      if (sg.c === dg.c && sg.r !== dg.r && sg.c > 0 && sg.c < nC - 1) {
-        /* Same column (interior only — border cols have spines): just vertical */
-        const rlo = Math.min(sg.r, dg.r), rhi = Math.max(sg.r, dg.r);
-        for (let r = rlo; r <= rhi; r++)
-          if (r !== sg.r && r !== dg.r && grid[r][sg.c] & V) return false;
-        placeV(sg.r, dg.r, sg.c, route);
-        return true;
-      }
-      /* Try preferred row: interior first (avoid blocking border rows).
-       * Never use mr === sg.r === dg.r (degenerate: H overlaps spine). */
-      let mr = -1;
-      const skipR = (sg.r === dg.r) ? sg.r : -1;
-      if (dg.r >= 1 && dg.r < nR - 1 && dg.r !== skipR && isVHVFree(sg, dg, dg.r)) mr = dg.r;
-      if (mr < 0)
-        for (let r = 1; r < nR - 1; r++)
-          if (r !== skipR && isVHVFree(sg, dg, r)) { mr = r; break; }
-      if (mr < 0)
-        for (let r = 0; r < nR; r++)
-          if (r !== skipR && isVHVFree(sg, dg, r)) { mr = r; break; }
-      if (mr < 0) return false;
-      placeV(sg.r, mr, sg.c, route);
-      if (sg.c !== dg.c) placeH(mr, sg.c, dg.c, route);
-      if (mr !== dg.r) placeV(mr, dg.r, dg.c, route);
-      return true;
-    }
-
     if (sg.r === dg.r && sg.c === dg.c) {
       /* Same cell: nothing to route */
-    } else {
-      /* Try primary orientation first, then fallback, then insert and retry */
-      const first = isLR(p.src.dir) ? tryHVH : tryVHV;
-      const second = isLR(p.src.dir) ? tryVHV : tryHVH;
-      /* Skip VHV for same-column border endpoints (would produce degenerate spine overlap) */
-      const sameColBorder = sg.c === dg.c && (sg.c === 0 || sg.c === nC - 1);
-      const sameRowBorder = sg.r === dg.r && (sg.r === 0 || sg.r === nR - 1);
-      let ok;
-      if (sameColBorder) ok = tryHVH(sg, dg, route);
-      else if (sameRowBorder) ok = tryVHV(sg, dg, route);
-      else ok = first(sg, dg, route) || second(sg, dg, route);
-      for (let _expand = 0; !ok && _expand < 50; _expand++) {
-        /* Rotate through insertion positions: center, near-source, near-dest, midpoint.
-         * Edge-only insertion fails when congestion is in the interior. */
-        const strategies = [
-          [Math.floor(nC / 2), Math.floor(nR / 2)],
-          [sg.c + 1, sg.r + 1],
-          [Math.max(1, dg.c), Math.max(1, dg.r)],
-          [Math.floor((sg.c + dg.c) / 2) + 1, Math.floor((sg.r + dg.r) / 2) + 1],
-          [sg.c > 0 ? sg.c : sg.c + 1, dg.r > 0 ? dg.r : dg.r + 1],
-          [dg.c > 0 ? dg.c : dg.c + 1, sg.r > 0 ? sg.r : sg.r + 1]
-        ];
-        const [ic, ir] = strategies[_expand % strategies.length];
-        insertCol(Math.min(ic, nC - 1));
-        insertRow(Math.min(ir, nR - 1));
-        ok = first(sg, dg, route) || second(sg, dg, route);
+    } else if (isAdj(i)) {
+      /* L-bend: route through the intersection of sg's row/col and dg's row/col */
+      if (isLR(p.src.dir)) {
+        /* HVH with bend at (sg.r, dg.c) */
+        placeH(sg.r, sg.c, dg.c, route);
+        if (sg.r !== dg.r) placeV(sg.r, dg.r, dg.c, route);
+      } else {
+        /* VHV with bend at (dg.r, sg.c) */
+        placeV(sg.r, dg.r, sg.c, route);
+        if (sg.c !== dg.c) placeH(dg.r, sg.c, dg.c, route);
       }
-      if (!ok) {
-        /* Fallback: force L-bend (may overlap, but avoids empty route) */
-        if (isLR(p.src.dir)) {
-          placeH(sg.r, sg.c, dg.c, route);
-          if (sg.r !== dg.r) placeV(sg.r, dg.r, dg.c, route);
-        } else {
-          placeV(sg.r, dg.r, sg.c, route);
-          if (sg.c !== dg.c) placeH(dg.r, sg.c, dg.c, route);
-        }
+    } else {
+      /* Z/U-bend with dedicated middle channel */
+      if (isLR(p.src.dir)) {
+        /* H1 → V (midCol) → H2 */
+        const mc = pN + pS + midCol[i] + 1;
+        placeH(sg.r, sg.c, mc, route);
+        if (sg.r !== dg.r) placeV(sg.r, dg.r, mc, route);
+        if (mc !== dg.c) placeH(dg.r, mc, dg.c, route);
+      } else {
+        /* V1 → H (midRow) → V2 */
+        const mr = pW + pE + midRow[i] + 1;
+        placeV(sg.r, mr, sg.c, route);
+        if (sg.c !== dg.c) placeH(mr, sg.c, dg.c, route);
+        if (mr !== dg.r) placeV(mr, dg.r, dg.c, route);
       }
     }
     allRoutes.push(route);
@@ -490,9 +347,7 @@ function routeBlockPorts(ports, nterm, cellSize) {
       channels.sort((a, b) => a.y - b.y);
       const edgeX = dir === 'W' ? 0 : cellSize;
       const spineX = channels[0].x;
-      /* Horizontal stub from edge to spine for first channel */
       spines.push([{ x: edgeX, y: channels[0].y }, { x: spineX, y: channels[0].y }]);
-      /* Vertical spine covering all channels */
       if (channels.length > 1)
         spines.push([{ x: spineX, y: channels[0].y },
                      { x: spineX, y: channels[channels.length - 1].y }]);
@@ -500,27 +355,19 @@ function routeBlockPorts(ports, nterm, cellSize) {
       channels.sort((a, b) => a.x - b.x);
       const edgeY = dir === 'N' ? 0 : cellSize;
       const spineY = channels[0].y;
-      /* Vertical stub from edge to spine for first channel */
       spines.push([{ x: channels[0].x, y: edgeY }, { x: channels[0].x, y: spineY }]);
-      /* Horizontal spine covering all channels */
       if (channels.length > 1)
         spines.push([{ x: channels[0].x, y: spineY },
                      { x: channels[channels.length - 1].x, y: spineY }]);
     }
   }
 
-  /* Step 6: Compute junction points (black dots at sub-terminal branches).
-   * Any terminal with 2+ ports gets junction dots: the sub-terminal spine
-   * creates a branch where edge, spine, and route(s) meet.
-   */
+  /* Step 6: Compute junction points (black dots at sub-terminal branches). */
   const junctions = [];
   for (const [k, arr] of Object.entries(termPorts)) {
     if (arr.length < 2) continue;
     const dir = k[0];
     const channels = arr.map(({ pi, end }) => toXY(chG[pi][end]));
-    /* Exclude the last channel (L-bend with only 2 connections).
-     * For W/E: last = largest y (bottommost in sub-terminal).
-     * For N/S: last = largest x (rightmost in sub-terminal). */
     if (isLR(dir)) {
       channels.sort((a, b) => a.y - b.y);
       const sx = channels[0].x;
@@ -534,10 +381,7 @@ function routeBlockPorts(ports, nterm, cellSize) {
     }
   }
 
-  /* Step 7: Build terminal position map (grid-aligned edge positions).
-   * Maps 'W0', 'E2', 'N1', etc. to {x, y} on the block edge.
-   * Used by statePos, nx/ny port drawing, Start/Goal markers.
-   */
+  /* Step 7: Build terminal position map (grid-aligned edge positions). */
   const termPos = {};
   for (const [k, arr] of Object.entries(termPorts)) {
     const dir = k[0];
@@ -553,9 +397,7 @@ function routeBlockPorts(ports, nterm, cellSize) {
     }
   }
 
-  /* Fill in default positions for terminals not participating in any port.
-   * Uses termLocalPos-equivalent equal spacing so that gridTermPos always
-   * has entries for every terminal (W/E/N/S × 0..nterm-1). */
+  /* Fill in default positions for terminals not participating in any port. */
   for (let i = 0; i < nterm; i++) {
     const t = cellSize * (i + 1) / (nterm + 1);
     if (!termPos['W' + i]) termPos['W' + i] = { x: 0, y: t };
@@ -564,10 +406,7 @@ function routeBlockPorts(ports, nterm, cellSize) {
     if (!termPos['S' + i]) termPos['S' + i] = { x: t, y: cellSize };
   }
 
-  /* Step 8: Detect sub-port overlaps.
-   * Two different ports sharing the same H or V in the same cell is an overlap,
-   * UNLESS it's a sub-terminal endpoint (first/last cell of a route).
-   */
+  /* Step 8: Detect sub-port overlaps (should always be empty with deterministic routing). */
   const endpoints = new Set();
   for (let pi = 0; pi < allRoutes.length; pi++) {
     const rt = allRoutes[pi];
