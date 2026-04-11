@@ -22,7 +22,7 @@ canvas { display: block; width: 100%; height: auto; }
 </style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:#999">v1.2</span><!-- terminal alignment --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:#999">v1.5</span><!-- display-only alignment --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -144,13 +144,13 @@ function termInsetPos(dir, idx, nterm) {
 /*
  * routeBlockPorts -- compute orthogonal polyline routes for all normal ports.
  *
- * Algorithm (from diagonal2.md): deterministic collision-free routing.
+ * Algorithm (from diagonal2.md): deterministic collision-free routing (v1.0).
  * 1. Count ports per side. Assign channel indices per terminal.
- * 2. Classify ports: adjacent (L-bend) vs opposite/same (Z/U-bend).
- * 3. Allocate dedicated middle rows (mH) / columns (mV) for Z/U-bends.
- * 4. Pre-compute grid size: nR = 1+pW+pE+mH+1, nC = 1+pN+pS+mV+1.
- * 5. Route: L-bend at channel intersection, Z/U-bend via dedicated middle channel.
- * 6. No collision search or grid expansion needed — overlaps cannot occur.
+ * 2. Adjacent → L-bend (no middle channel). Opposite/Same → Z-bend (mH/mV).
+ * 3. Pre-compute grid size: nR = 1+pW+pE+mH+1, nC = 1+pN+pS+mV+1.
+ * 4. Route: L-bend at channel intersection, Z/U-bend via dedicated middle channel.
+ * 5. No collision search or grid expansion needed — overlaps cannot occur.
+ * 6. termPos display-only alignment: E[i].y = W[i].y, S[i].x = N[i].x.
  *
  * Returns array of polylines (each is [{x,y}] in block-local coordinates).
  */
@@ -196,9 +196,8 @@ function routeBlockPorts(ports, nterm, cellSize) {
 
   /* Step 2: Deterministic grid sizing with dedicated middle channels.
    *
-   * Classify each port as adjacent (L-bend) or opposite/same (Z/U-bend).
-   * Z/U-bends with isLR(src) need a dedicated V middle column (mV).
-   * Z/U-bends with !isLR(src) need a dedicated H middle row (mH).
+   * Adjacent ports → L-bend (no middle channel needed).
+   * Opposite/Same ports → Z/U-bend with dedicated middle channel.
    *
    * Rows: 0=N-border, 1..pW=W channels, pW+1..pW+pE=E channels,
    *        pW+pE+1..pW+pE+mH=H middles, pW+pE+mH+1=S-border
@@ -292,24 +291,20 @@ function routeBlockPorts(ports, nterm, cellSize) {
     } else if (isAdj(i)) {
       /* L-bend: route through the intersection of sg's row/col and dg's row/col */
       if (isLR(p.src.dir)) {
-        /* HVH with bend at (sg.r, dg.c) */
         placeH(sg.r, sg.c, dg.c, route);
         if (sg.r !== dg.r) placeV(sg.r, dg.r, dg.c, route);
       } else {
-        /* VHV with bend at (dg.r, sg.c) */
         placeV(sg.r, dg.r, sg.c, route);
         if (sg.c !== dg.c) placeH(dg.r, sg.c, dg.c, route);
       }
     } else {
       /* Z/U-bend with dedicated middle channel */
       if (isLR(p.src.dir)) {
-        /* H1 → V (midCol) → H2 */
         const mc = pN + pS + midCol[i] + 1;
         placeH(sg.r, sg.c, mc, route);
         if (sg.r !== dg.r) placeV(sg.r, dg.r, mc, route);
         if (mc !== dg.c) placeH(dg.r, mc, dg.c, route);
       } else {
-        /* V1 → H (midRow) → V2 */
         const mr = pW + pE + midRow[i] + 1;
         placeV(sg.r, mr, sg.c, route);
         if (sg.c !== dg.c) placeH(mr, sg.c, dg.c, route);
@@ -408,18 +403,10 @@ function routeBlockPorts(ports, nterm, cellSize) {
 
   /* Align E with W, S with N: same terminal idx must share the same y/x
    * at block boundaries. Runs after defaults so all terminals have entries.
-   * Add bridge spines connecting E-channel / S-channel grid positions to
-   * the aligned W-channel / N-channel positions. */
+   * No bridge spines needed — routes reach aligned positions via chG alignment. */
   for (let i = 0; i < nterm; i++) {
-    const eChY = termPos['E' + i].y;
     termPos['E' + i] = { x: cellSize, y: termPos['W' + i].y };
-    if (Math.abs(eChY - termPos['E' + i].y) > 0.5)
-      spines.push([{ x: cellSize, y: eChY }, { x: cellSize, y: termPos['E' + i].y }]);
-
-    const sChX = termPos['S' + i].x;
     termPos['S' + i] = { x: termPos['N' + i].x, y: cellSize };
-    if (Math.abs(sChX - termPos['S' + i].x) > 0.5)
-      spines.push([{ x: sChX, y: cellSize }, { x: termPos['N' + i].x, y: cellSize }]);
   }
 
   /* Step 8: Detect sub-port overlaps (should always be empty with deterministic routing). */
