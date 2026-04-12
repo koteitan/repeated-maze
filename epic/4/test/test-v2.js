@@ -63,21 +63,82 @@ function segOv(p, q) {
 }
 function rangeOv(a1,a2,b1,b2) { const lo=Math.max(a1,b1),hi=Math.min(a2,b2); return hi>lo+0.01?hi-lo:0; }
 
-/* ---- TC-R1: route connectivity ---- */
-/* Routes start/end at sub-terminal positions (1 cell inward from border).
- * Spines handle the border connection. Check orthogonality only. */
-function checkConnectivity(ports, routes, cellSize) {
+/* ---- Test A: sub-port full-path connectivity ---- */
+/* For each port, check that route + spines form a connected chain from src edge to dst edge.
+ * 1. Route internal: consecutive points are orthogonal (no diagonals)
+ * 2. Route start lies on a spine segment (src terminal's spine reaches the route)
+ * 3. Route end lies on a spine segment (dst terminal's spine reaches the route)  */
+function checkFullConnectivity(ports, routes, spines, cellSize) {
+  const EPS = 0.5;
+  function ptOnSeg(px, py, s) {
+    const isH = Math.abs(s[0].y - s[1].y) < EPS;
+    const isV = Math.abs(s[0].x - s[1].x) < EPS;
+    if (isH && Math.abs(py - s[0].y) < EPS) {
+      return px >= Math.min(s[0].x,s[1].x)-EPS && px <= Math.max(s[0].x,s[1].x)+EPS;
+    }
+    if (isV && Math.abs(px - s[0].x) < EPS) {
+      return py >= Math.min(s[0].y,s[1].y)-EPS && py <= Math.max(s[0].y,s[1].y)+EPS;
+    }
+    return false;
+  }
   const fails = [];
   for (let i = 0; i < ports.length; i++) {
     const r = routes[i];
-    if (!r || r.length < 1) { fails.push(`port ${i}: route empty`); continue; }
+    if (!r || r.length < 2) { fails.push(`port ${i}: route too short (len=${r?r.length:0})`); continue; }
+    /* Internal orthogonality */
     for (let j = 0; j < r.length - 1; j++) {
       const dx = Math.abs(r[j].x - r[j+1].x), dy = Math.abs(r[j].y - r[j+1].y);
-      if (dx > 0.01 && dy > 0.01)
-        fails.push(`port ${i} seg ${j}: diagonal (dx=${dx.toFixed(1)},dy=${dy.toFixed(1)})`);
+      if (dx > 0.01 && dy > 0.01) { fails.push(`port ${i} seg ${j}: diagonal`); break; }
     }
+    /* Route start on a spine */
+    const first = r[0];
+    if (!spines.some(s => ptOnSeg(first.x, first.y, s)))
+      fails.push(`port ${i}: route start (${first.x.toFixed(1)},${first.y.toFixed(1)}) not on any spine`);
+    /* Route end on a spine */
+    const last = r[r.length - 1];
+    if (!spines.some(s => ptOnSeg(last.x, last.y, s)))
+      fails.push(`port ${i}: route end (${last.x.toFixed(1)},${last.y.toFixed(1)}) not on any spine`);
   }
   return fails;
+}
+
+/* ---- Test B: same-direction overlap (all segments: routes + spines) ---- */
+/* Collect all drawn segments with owners. Two segments from different owners that are
+ * same-direction (both H or both V) and on the same row/col must not overlap.
+ * Crossing (H+V at one point) is OK. Single-point touching at endpoints is OK. */
+function checkSameDirOverlap(ports, routes, spines) {
+  const EPS = 0.01;
+  const segs = []; /* {a, b, owner, isH, isV} */
+  /* Route segments */
+  for (let pi = 0; pi < routes.length; pi++) {
+    const r = routes[pi]; if (!r) continue;
+    for (let j = 0; j < r.length - 1; j++)
+      segs.push({ a: r[j], b: r[j+1], owner: 'R'+pi });
+  }
+  /* Spine segments */
+  for (let si = 0; si < spines.length; si++)
+    segs.push({ a: spines[si][0], b: spines[si][1], owner: 'S'+si });
+
+  let count = 0;
+  for (let i = 0; i < segs.length; i++) {
+    for (let j = i+1; j < segs.length; j++) {
+      if (segs[i].owner === segs[j].owner) continue;
+      const p = segs[i], q = segs[j];
+      const pH = Math.abs(p.a.y-p.b.y)<EPS, qH = Math.abs(q.a.y-q.b.y)<EPS;
+      const pV = Math.abs(p.a.x-p.b.x)<EPS, qV = Math.abs(q.a.x-q.b.x)<EPS;
+      if (pH && qH && Math.abs(p.a.y - q.a.y) < EPS) {
+        const ov = rangeOv(Math.min(p.a.x,p.b.x),Math.max(p.a.x,p.b.x),
+                           Math.min(q.a.x,q.b.x),Math.max(q.a.x,q.b.x));
+        if (ov > EPS) count++;
+      }
+      if (pV && qV && Math.abs(p.a.x - q.a.x) < EPS) {
+        const ov = rangeOv(Math.min(p.a.y,p.b.y),Math.max(p.a.y,p.b.y),
+                           Math.min(q.a.y,q.b.y),Math.max(q.a.y,q.b.y));
+        if (ov > EPS) count++;
+      }
+    }
+  }
+  return count;
 }
 
 /* ---- TC-A1: E/S alignment ---- */
@@ -100,13 +161,17 @@ function runCase(label, ports, nterm) {
   try { result = routeBlockPorts(ports, nterm, CELL); }
   catch(e) { return { label, ok: false, fails: ['EXCEPTION: ' + e.message] }; }
   const fails = [];
-  const r1 = checkConnectivity(ports, result.routes, CELL);
-  if (r1.length) fails.push(...r1.map(f => 'TC-R1: ' + f));
-  if (result.overlaps.length) fails.push(`TC-O1: ${result.overlaps.length} grid overlaps`);
-  const pxOv = checkPixelOverlaps(result.routes, result.spines);
-  if (pxOv.RR||pxOv.SS||pxOv.RS) fails.push(`TC-O2: RR=${pxOv.RR} SS=${pxOv.SS} RS=${pxOv.RS}`);
+  /* Test A: full-path connectivity (route start/end on spine, no diagonals) */
+  const tA = checkFullConnectivity(ports, result.routes, result.spines, CELL);
+  if (tA.length) fails.push(...tA.map(f => 'A: ' + f));
+  /* Test B: same-direction overlap (routes + spines, all owners) */
+  const ovB = checkSameDirOverlap(ports, result.routes, result.spines);
+  if (ovB > 0) fails.push(`B: ${ovB} same-dir overlaps`);
+  /* Grid-level overlap (internal check) */
+  if (result.overlaps.length) fails.push(`O1: ${result.overlaps.length} grid overlaps`);
+  /* E/S alignment */
   const a1 = checkAlignment(result.termPos, nterm, CELL);
-  if (a1.length) fails.push(...a1.map(f => 'TC-A1: ' + f));
+  if (a1.length) fails.push(...a1.map(f => 'A1: ' + f));
   return { label, ok: fails.length === 0, fails };
 }
 
