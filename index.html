@@ -303,7 +303,8 @@ function routeBlockPorts(ports, nterm, cellSize) {
   function placeH1(r, c, pi) { grid[r][c] |= H; hOwner[r][c] = pi; }
   function placeV1(r, c, pi) { grid[r][c] |= V; vOwner[r][c] = pi; }
 
-  /* Safe V: place V at (r,c). If vOwner conflict → insert col, H detour to new blank col. */
+  /* safeV: place V at (r,c). On V conflict → insert col, H-step to new blank col, V there.
+   * No mutual recursion. The 1-cell H at old col is an H+V crossing (OK). */
   function safeV(r, c, detourDir, pi, route) {
     if (vOwner[r][c] !== -1 && vOwner[r][c] !== pi) {
       const at = detourDir <= 0 ? Math.max(c, 1) : Math.min(c + 1, nC - 1);
@@ -312,43 +313,50 @@ function routeBlockPorts(ports, nterm, cellSize) {
       placeH1(r, oldC, pi); route.push({r, c: oldC});
       placeH1(r, newC, pi); route.push({r, c: newC});
       placeV1(r, newC, pi); route.push({r, c: newC});
-      return newC;
+      return {r, c: newC};
     }
     placeV1(r, c, pi); route.push({r, c});
-    return c;
+    return {r, c};
   }
 
-  /* Safe H: place H at (r,c). If hOwner conflict → insert row, V detour to new blank row. */
+  /* safeH: place H at (r,c). On H conflict → insert row, V-step to new blank row, H there.
+   * No mutual recursion. The 1-cell V at old row is an H+V crossing (OK). */
   function safeH(r, c, detourDir, pi, route) {
     if (hOwner[r][c] !== -1 && hOwner[r][c] !== pi) {
       const at = detourDir <= 0 ? Math.max(r, 1) : Math.min(r + 1, nR - 1);
       insertRow(at);
       const oldR = at <= r ? r + 1 : r, newR = at;
-      safeV(oldR, c, detourDir, pi, route);  /* V at old row — may itself detour */
-      placeV1(newR, c, pi); route.push({r: newR, c});  /* V at new blank row — always free */
+      placeV1(oldR, c, pi); route.push({r: oldR, c});
+      placeV1(newR, c, pi); route.push({r: newR, c});
       placeH1(newR, c, pi); route.push({r: newR, c});
-      return newR;
+      return {r: newR, c};
     }
     placeH1(r, c, pi); route.push({r, c});
-    return r;
+    return {r, c};
   }
 
-  /* Walk H from (r, cStart) toward cEnd. Returns final row. */
-  function walkH(r, cStart, cEnd, detourDir, pi, route) {
-    const step = cStart <= cEnd ? 1 : -1;
-    let curR = r;
-    for (let c = cStart; step > 0 ? c <= cEnd : c >= cEnd; c += step)
-      curR = safeH(curR, c, detourDir, pi, route);
-    return curR;
+  /* walkToCol: walk H from pos toward targetColFn() (live reference). Returns final {r,c}. */
+  function walkToCol(pos, targetColFn, detourDir, pi, route) {
+    for (let safety = 0; safety < 500; safety++) {
+      const t = targetColFn();
+      if (pos.c === t || t < 0 || t >= nC) break;
+      const nextC = Math.max(0, Math.min(nC - 1, pos.c + (t > pos.c ? 1 : -1)));
+      if (nextC === pos.c) break;
+      pos = safeH(pos.r, nextC, detourDir, pi, route);
+    }
+    return pos;
   }
 
-  /* Walk V from (rStart, c) toward rEnd. Returns final col. */
-  function walkV(rStart, rEnd, c, detourDir, pi, route) {
-    const step = rStart <= rEnd ? 1 : -1;
-    let curC = c;
-    for (let r = rStart; step > 0 ? r <= rEnd : r >= rEnd; r += step)
-      curC = safeV(r, curC, detourDir, pi, route);
-    return curC;
+  /* walkToRow: walk V from pos toward targetRowFn() (live reference). Returns final {r,c}. */
+  function walkToRow(pos, targetRowFn, detourDir, pi, route) {
+    for (let safety = 0; safety < 500; safety++) {
+      const t = targetRowFn();
+      if (pos.r === t || t < 0 || t >= nR) break;
+      const nextR = Math.max(0, Math.min(nR - 1, pos.r + (t > pos.r ? 1 : -1)));
+      if (nextR === pos.r) break;
+      pos = safeV(nextR, pos.c, detourDir, pi, route);
+    }
+    return pos;
   }
 
   /* --- Step 3: Route each port incrementally --- */
@@ -358,55 +366,58 @@ function routeBlockPorts(ports, nterm, cellSize) {
   for (const pi of portOrder) {
     const route = [];
     curRoute = route;
-    /* Always access chG[pi].src/dst LIVE (not cached) since insertRow/Col replaces them */
     const S = () => chG[pi].src, D = () => chG[pi].dst;
     if (S().r === D().r && S().c === D().c) { allRoutes[pi] = route; curRoute = null; continue; }
 
+    /* Place starting cell */
+    let pos = {r: S().r, c: S().c};
+    if (isLR(ports[pi].src.dir)) { placeH1(pos.r, pos.c, pi); }
+    else                          { placeV1(pos.r, pos.c, pi); }
+    route.push({r: pos.r, c: pos.c});
+
+    /* Mark corner cell with both H+V so subsequent ports detect it as occupied.
+     * Only mark if not already owned by another port (don't overwrite). */
+    function markCorner(pi) {
+      const last = route[route.length - 1];
+      if (!last) return;
+      if (hOwner[last.r][last.c] === -1 || hOwner[last.r][last.c] === pi) placeH1(last.r, last.c, pi);
+      if (vOwner[last.r][last.c] === -1 || vOwner[last.r][last.c] === pi) placeV1(last.r, last.c, pi);
+    }
+
     if (isAdj(pi)) {
-      /* L-bend */
+      /* L-bend: primary direction first, mark corner, then secondary. Repeat until arrival. */
       if (isLR(ports[pi].src.dir)) {
-        const vDir = D().r < S().r ? -1 : 1;
-        const endR = walkH(S().r, S().c, D().c, vDir, pi, route);
-        if (endR !== D().r) {
-          const hDir = D().c < S().c ? -1 : 1;
-          walkV(endR, D().r, route[route.length-1].c, hDir, pi, route);
+        for (let ph = 0; ph < 6 && (pos.c !== D().c || pos.r !== D().r); ph++) {
+          if (pos.c !== D().c) pos = walkToCol(pos, () => D().c, D().r < pos.r ? -1 : 1, pi, route);
+          markCorner(pi);
+          if (pos.r !== D().r) pos = walkToRow(pos, () => D().r, D().c > pos.c ? 1 : -1, pi, route);
         }
       } else {
-        const hDir = D().c < S().c ? -1 : 1;
-        const endC = walkV(S().r, D().r, S().c, hDir, pi, route);
-        if (endC !== D().c) {
-          const vDir = D().r < S().r ? -1 : 1;
-          walkH(route[route.length-1].r, endC, D().c, vDir, pi, route);
+        for (let ph = 0; ph < 6 && (pos.c !== D().c || pos.r !== D().r); ph++) {
+          if (pos.r !== D().r) pos = walkToRow(pos, () => D().r, D().c < pos.c ? -1 : 1, pi, route);
+          markCorner(pi);
+          if (pos.c !== D().c) pos = walkToCol(pos, () => D().c, D().r > pos.r ? 1 : -1, pi, route);
         }
       }
     } else {
-      /* Z/U-bend */
+      /* Z-bend: use turn point 1 cell inside dst border, then walk to dst. Repeat until arrival. */
       if (isLR(ports[pi].src.dir)) {
-        /* H → V → H.  Turn col 1 inside dst border to avoid V at spine col. */
-        let tc = D().c + (D().c > S().c ? -1 : 1);
-        if (tc === S().c) tc = D().c; /* fallback if only 2 cols */
-        if (tc < 1 || tc >= nC - 1) { insertCol(Math.max(1, Math.min(tc, nC-1))); tc = Math.max(1, Math.min(tc, nC-1)); }
-        const vDir = D().r < S().r ? -1 : 1;
-        const r1 = walkH(S().r, S().c, tc, vDir, pi, route);
-        const hDir = S().c < D().c ? 1 : -1;
-        const endC = walkV(r1, D().r, route[route.length-1].c, hDir, pi, route);
-        if (endC !== D().c) {
-          walkH(route[route.length-1].r, endC, D().c, vDir, pi, route);
+        const tcFn = () => { const d=D().c; return d + (d > pos.c ? -1 : 1); };
+        pos = walkToCol(pos, tcFn, D().r < pos.r ? -1 : 1, pi, route);
+        for (let ph = 0; ph < 6 && (pos.c !== D().c || pos.r !== D().r); ph++) {
+          if (pos.r !== D().r) pos = walkToRow(pos, () => D().r, D().c > pos.c ? 1 : -1, pi, route);
+          if (pos.c !== D().c) pos = walkToCol(pos, () => D().c, D().r < pos.r ? -1 : 1, pi, route);
         }
       } else {
-        /* V → H → V.  Turn row 1 inside dst border. */
-        let tr = D().r + (D().r > S().r ? -1 : 1);
-        if (tr === S().r) tr = D().r;
-        if (tr < 1 || tr >= nR - 1) { insertRow(Math.max(1, Math.min(tr, nR-1))); tr = Math.max(1, Math.min(tr, nR-1)); }
-        const hDir = D().c < S().c ? -1 : 1;
-        const c1 = walkV(S().r, tr, S().c, hDir, pi, route);
-        const vDir = S().r < D().r ? 1 : -1;
-        const endR = walkH(route[route.length-1].r, c1, D().c, vDir, pi, route);
-        if (endR !== D().r) {
-          walkV(endR, D().r, route[route.length-1].c, hDir, pi, route);
+        const trFn = () => { const d=D().r; return d + (d > pos.r ? -1 : 1); };
+        pos = walkToRow(pos, trFn, D().c < pos.c ? -1 : 1, pi, route);
+        for (let ph = 0; ph < 6 && (pos.c !== D().c || pos.r !== D().r); ph++) {
+          if (pos.c !== D().c) pos = walkToCol(pos, () => D().c, D().r > pos.r ? 1 : -1, pi, route);
+          if (pos.r !== D().r) pos = walkToRow(pos, () => D().r, D().c < pos.c ? -1 : 1, pi, route);
         }
       }
     }
+
     allRoutes[pi] = route;
     curRoute = null;
   }

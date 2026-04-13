@@ -220,6 +220,8 @@ const fixed = [
   { label:'MIX-3', nterm:3, ports:[{src:{dir:'W',idx:0},dst:{dir:'N',idx:0}},{src:{dir:'S',idx:0},dst:{dir:'W',idx:2}},{src:{dir:'W',idx:2},dst:{dir:'S',idx:1}},{src:{dir:'N',idx:1},dst:{dir:'W',idx:1}}] },
   { label:'MIX-4', nterm:4, ports:[{src:{dir:'W',idx:0},dst:{dir:'E',idx:2}},{src:{dir:'W',idx:2},dst:{dir:'E',idx:3}},{src:{dir:'W',idx:3},dst:{dir:'S',idx:0}},{src:{dir:'N',idx:0},dst:{dir:'W',idx:0}}] },
   { label:'MIX-5', nterm:4, ports:[{src:{dir:'N',idx:0},dst:{dir:'S',idx:0}},{src:{dir:'N',idx:1},dst:{dir:'S',idx:1}},{src:{dir:'W',idx:0},dst:{dir:'E',idx:0}},{src:{dir:'W',idx:1},dst:{dir:'E',idx:1}}] },
+  { label:'MIX-6', nterm:2, ports:[{src:{dir:'W',idx:0},dst:{dir:'S',idx:0}},{src:{dir:'W',idx:0},dst:{dir:'N',idx:0}}] },
+  { label:'MIX-7', nterm:2, ports:[{src:{dir:'W',idx:0},dst:{dir:'E',idx:0}},{src:{dir:'W',idx:0},dst:{dir:'E',idx:1}}] },
 ];
 for (const tc of fixed) runAndRecord(tc.label, tc.ports, tc.nterm);
 
