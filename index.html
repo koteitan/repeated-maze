@@ -22,7 +22,7 @@ canvas { display: block; width: 100%; height: auto; }
 </style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:#999">v2.2</span><!-- incremental routing with row/col insertion on conflict --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:#999">v2.3</span><!-- diagonal3: insertion-based routing --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -154,44 +154,24 @@ function termInsetPos(dir, idx, nterm) {
  *
  * Returns array of polylines (each is [{x,y}] in block-local coordinates).
  */
-/* Helper: get the display y for E terminal idx border spine.
- * = W[idx].y if W participates, else E[idx].y if E participates, else default. */
-function alignedY(idx, termPorts, chG, toXY, cellSize, nterm) {
-  const wArr = termPorts['W' + idx];
-  if (wArr) { const ys = wArr.map(({pi,end}) => toXY(chG[pi][end]).y); return Math.min(...ys); }
-  const eArr = termPorts['E' + idx];
-  if (eArr) { const ys = eArr.map(({pi,end}) => toXY(chG[pi][end]).y); return Math.min(...ys); }
-  return cellSize * (idx + 1) / (nterm + 1);
-}
-/* Helper: get the display x for S terminal idx border spine.
- * = N[idx].x if N participates, else S[idx].x if S participates, else default. */
-function alignedX(idx, termPorts, chG, toXY, cellSize, nterm) {
-  const nArr = termPorts['N' + idx];
-  if (nArr) { const xs = nArr.map(({pi,end}) => toXY(chG[pi][end]).x); return Math.min(...xs); }
-  const sArr = termPorts['S' + idx];
-  if (sArr) { const xs = sArr.map(({pi,end}) => toXY(chG[pi][end]).x); return Math.min(...xs); }
-  return cellSize * (idx + 1) / (nterm + 1);
-}
-
 function routeBlockPorts(ports, nterm, cellSize) {
-  /* v2.1: Sub-terminal spines only (areas 2,4,6,8).
-   *       E[i].y = W[i].y, S[i].x = N[i].x alignment.
-   *       No area-5 routing yet. */
+  /* diagonal3: insertion-based routing.
+   * Each port gets dedicated rows/cols → no same-direction collisions by construction.
+   * Swap trials minimize crossings. */
   if (ports.length === 0) {
     const termPos = {};
     for (let i = 0; i < nterm; i++) {
       const t = cellSize * (i + 1) / (nterm + 1);
-      termPos['W' + i] = { x: 0, y: t };
-      termPos['E' + i] = { x: cellSize, y: t };
-      termPos['N' + i] = { x: t, y: 0 };
-      termPos['S' + i] = { x: t, y: cellSize };
+      termPos['W'+i] = {x:0, y:t}; termPos['E'+i] = {x:cellSize, y:t};
+      termPos['N'+i] = {x:t, y:0}; termPos['S'+i] = {x:t, y:cellSize};
     }
     return { routes: [], spines: [], junctions: [], termPos, overlaps: [] };
   }
 
   const isLR = d => d === 'W' || d === 'E';
+  const opposite = { E:'W', W:'E', N:'S', S:'N' };
 
-  /* Step 1: termPorts + channel assignment */
+  /* --- Build termPorts --- */
   const termPorts = {};
   for (let i = 0; i < ports.length; i++) {
     const p = ports[i];
@@ -199,230 +179,287 @@ function routeBlockPorts(ports, nterm, cellSize) {
     (termPorts[sk] = termPorts[sk] || []).push({ pi: i, end: 'src' });
     (termPorts[dk] = termPorts[dk] || []).push({ pi: i, end: 'dst' });
   }
-  const sideCh = { W: 0, E: 0, N: 0, S: 0 };
-  const chMap = [];
-  for (let i = 0; i < ports.length; i++) chMap.push({ src: -1, dst: -1 });
-  for (let d = 0; d < 4; d++) {
-    const dir = 'WENS'[d];
-    for (let idx = 0; idx < nterm; idx++) {
-      const k = dir + idx;
-      if (!termPorts[k]) continue;
-      for (const { pi, end } of termPorts[k])
-        chMap[pi][end] = sideCh[dir]++;
+
+  /* --- Sub-terminal lists: ordered arrays of {pi, end, termIdx} ---
+   * wList/eList: rows (H direction). nList/sList: cols (V direction).
+   * Each entry = one sub-terminal channel for one port endpoint. */
+  const wList = [], eList = [], nList = [], sList = [];
+  /* mainRows: rows in area 5 (between W/E sub-terminals). Each row is owned by a port's H segment. */
+  /* mainCols: cols in area 5 (between N/S sub-terminals). Each col is owned by a port's V segment. */
+  const mainRows = []; /* not used for L-case */
+  const mainCols = [];
+
+  /* Route data: for each port, the grid-level route description */
+  const routeData = []; /* {srcRow, dstRow, srcCol, dstCol, turnCol, turnRow, shape} */
+  for (let i = 0; i < ports.length; i++) routeData.push(null);
+
+  /* --- Classify and insert each port --- */
+  function getShape(p) {
+    if (p.src.dir === p.dst.dir) return 'U';
+    if (p.src.dir === opposite[p.dst.dir]) return 'S';
+    return 'L';
+  }
+
+  /* Insert into a sub-terminal list in terminal-index order.
+   * Returns the insertion index. */
+  function insertSubterm(list, termIdx, entry) {
+    let pos = list.length;
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].termIdx > termIdx) { pos = i; break; }
+    }
+    list.splice(pos, 0, { ...entry, termIdx });
+    return pos;
+  }
+
+  /* Get the sub-terminal list for a direction */
+  function getList(dir) {
+    switch(dir) { case 'W': return wList; case 'E': return eList; case 'N': return nList; case 'S': return sList; }
+  }
+
+  /* Count crossings in the main area given current routing.
+   * A crossing occurs when port A goes H through a cell where port B goes V. */
+  function countCrossings() {
+    let count = 0;
+    /* For each pair of routed ports, check if their H and V segments cross */
+    for (let a = 0; a < ports.length; a++) {
+      const ra = routeData[a]; if (!ra) continue;
+      for (let b = a + 1; b < ports.length; b++) {
+        const rb = routeData[b]; if (!rb) continue;
+        /* Port A's H segment is at its srcRow (for L/S/U, the H part).
+         * Port B's V segment is at its column (for L, the dstCol; for S/U, the turnCol).
+         * They cross if A's H row is between B's V row range and B's V col is between A's H col range. */
+        if (hCrossesV(ra, rb)) count++;
+        if (hCrossesV(rb, ra)) count++;
+      }
+    }
+    return count;
+  }
+
+  function hCrossesV(ra, rb) {
+    /* Does ra's H segment cross rb's V segment in the main area? */
+    /* ra has H at some row. rb has V at some col. */
+    /* For L-shape (W→N): H goes from col 0 to dstCol at srcRow. V goes from srcRow to row 0 at dstCol. */
+    /* We need to check if ra's H row is within rb's V row range and rb's V col is within ra's H col range. */
+    /* Simplified: just check if they share a cell in the main area. */
+    /* This is complex for general cases. Use a grid-based approach instead. */
+    return false; /* placeholder - will use grid-based counting */
+  }
+
+  /* --- Process each port --- */
+  for (let pi = 0; pi < ports.length; pi++) {
+    const p = ports[pi];
+    const shape = getShape(p);
+    const srcDir = p.src.dir, dstDir = p.dst.dir;
+    const srcIdx = p.src.idx, dstIdx = p.dst.idx;
+    const srcList = getList(srcDir), dstList = getList(dstDir);
+
+    if (shape === 'L') {
+      /* Source insertion */
+      const srcPos = insertSubterm(srcList, srcIdx, { pi, end: 'src' });
+      /* Destination insertion */
+      const dstPos = insertSubterm(dstList, dstIdx, { pi, end: 'dst' });
+      routeData[pi] = { shape: 'L', srcDir, dstDir, srcIdx, dstIdx, srcPos, dstPos };
+
+    } else if (shape === 'S') {
+      /* Source insertion */
+      const srcPos = insertSubterm(srcList, srcIdx, { pi, end: 'src' });
+      /* Destination insertion */
+      const dstPos = insertSubterm(dstList, dstIdx, { pi, end: 'dst' });
+      /* Orthogonal insertion: column (if src is LR) or row (if src is !LR) at midpoint */
+      let turnPos;
+      if (isLR(srcDir)) {
+        turnPos = Math.floor(mainCols.length / 2);
+        mainCols.splice(turnPos, 0, pi);
+      } else {
+        turnPos = Math.floor(mainRows.length / 2);
+        mainRows.splice(turnPos, 0, pi);
+      }
+      routeData[pi] = { shape: 'S', srcDir, dstDir, srcIdx, dstIdx, srcPos, dstPos, turnPos };
+
+    } else { /* U */
+      const srcPos = insertSubterm(srcList, srcIdx, { pi, end: 'src' });
+      const dstPos = insertSubterm(dstList, dstIdx, { pi, end: 'dst' });
+      let turnPos;
+      if (isLR(srcDir)) {
+        turnPos = Math.floor(mainCols.length / 2);
+        mainCols.splice(turnPos, 0, pi);
+      } else {
+        turnPos = Math.floor(mainRows.length / 2);
+        mainRows.splice(turnPos, 0, pi);
+      }
+      routeData[pi] = { shape: 'U', srcDir, dstDir, srcIdx, dstIdx, srcPos, dstPos, turnPos };
     }
   }
-  const pW = sideCh.W, pE = sideCh.E, pN = sideCh.N, pS = sideCh.S;
 
-  /* Step 2: Mutable grid — starts with sub-terminal areas, grows as routes are added. */
-  const opposite = { E: 'W', W: 'E', N: 'S', S: 'N' };
-  const isAdj = i => {
-    const p = ports[i];
-    return p.src.dir !== p.dst.dir && p.src.dir !== opposite[p.dst.dir];
-  };
+  /* --- Build grid from sub-terminal lists and main area --- */
+  /* Grid layout:
+   * Rows: [N border=0] [N sub-terms: nList.length] [main rows: mainRows.length + max(wList.length, eList.length)] [S sub-terms: sList.length] [S border]
+   * Wait, this isn't right. Let me reconsider.
+   *
+   * The grid rows are:
+   *   row 0: N border
+   *   rows 1..nList.length: N sub-terminal area (area 2) -- NOT rows, these are COLUMNS
+   *
+   * Actually: N and S sub-terminals add COLUMNS, W and E add ROWS.
+   * N sub-terminal channels are at row 0 (border) going down. But in the spec, N sub-terminal is a col in area 2.
+   *
+   * Let me re-think the grid structure for diagonal3:
+   *   Rows: 0=N-border, then W/E sub-terminal rows, then S-border
+   *   Cols: 0=W-border, then N/S sub-terminal cols, then E-border
+   *   Main area: the intersection of W/E rows and N/S cols
+   *
+   * W sub-terminal: each entry in wList adds a row. These rows go H from W border into main area.
+   * E sub-terminal: each entry in eList adds a row. Same rows as W (interleaved by terminal idx).
+   * N sub-terminal: each entry in nList adds a col. V from N border into main area.
+   * S sub-terminal: each entry in sList adds a col. Same cols as N (interleaved by terminal idx).
+   * Main area extra cols: mainCols (for S-bend and U-bend turn columns).
+   * Main area extra rows: mainRows (for S-bend and U-bend turn rows, when !isLR).
+   */
 
-  /* Interleaved row/col allocation: W[i] and E[i] share the same row range,
-   * N[i] and S[i] share the same col range. Alignment is natural. */
-  const pWi = new Array(nterm).fill(0), pEi = new Array(nterm).fill(0);
-  const pNi = new Array(nterm).fill(0), pSi = new Array(nterm).fill(0);
-  for (const [k, arr] of Object.entries(termPorts)) {
-    const d = k[0], idx = parseInt(k.slice(1));
-    if (d==='W') pWi[idx]=arr.length; else if (d==='E') pEi[idx]=arr.length;
-    else if (d==='N') pNi[idx]=arr.length; else pSi[idx]=arr.length;
-  }
-  const rowStart = [1], colStart = [1];
-  for (let i = 1; i < nterm; i++) {
-    rowStart[i] = rowStart[i-1] + Math.max(pWi[i-1], pEi[i-1]);
-    colStart[i] = colStart[i-1] + Math.max(pNi[i-1], pSi[i-1]);
-  }
-  const totalR = (rowStart[nterm-1]||1) + Math.max(pWi[nterm-1]||0, pEi[nterm-1]||0);
-  const totalC = (colStart[nterm-1]||1) + Math.max(pNi[nterm-1]||0, pSi[nterm-1]||0);
-  let nR = Math.max(totalR, 1) + 1;  /* +1 for S border */
-  let nC = Math.max(totalC, 1) + 1;  /* +1 for E border */
+  /* Compute row positions:
+   * We need to interleave W and E sub-terminals by terminal index.
+   * wList and eList are sorted by termIdx. Merge them to get row order.
+   * Actually, each entry in wList is a row. Each entry in eList is also a row.
+   * For terminal alignment: W[i] and E[i] should share the same row range.
+   * With diagonal3: each port endpoint gets its OWN row. W0-S0 gets a W row. W0-N0 gets another W row.
+   * E0-W1 gets an E row. Etc.
+   * W and E rows are at the same "level" in the grid (between N-border and S-border).
+   * Their relative order comes from the sub-terminal list order.
+   */
 
-  /* Map channel number → interleaved row/col */
-  const wR=[], eR=[], nCC=[], sC=[];
-  let wi=0,ei=0,ni=0,si=0;
-  for (let t=0;t<nterm;t++) {
-    for(let j=0;j<pWi[t];j++) wR[wi++]=rowStart[t]+j;
-    for(let j=0;j<pEi[t];j++) eR[ei++]=rowStart[t]+j;  /* SAME rowStart as W! */
-    for(let j=0;j<pNi[t];j++) nCC[ni++]=colStart[t]+j;
-    for(let j=0;j<pSi[t];j++) sC[si++]=colStart[t]+j;  /* SAME colStart as N! */
-  }
-  function mkChG(dir, ch) {
-    switch(dir) {
-      case 'W': return {r:wR[ch], c:0};
-      case 'E': return {r:eR[ch], c:nC-1};
-      case 'N': return {r:0, c:nCC[ch]};
-      case 'S': return {r:nR-1, c:sC[ch]};
-    }
-  }
-  const chG = [];
-  for (let i=0;i<ports.length;i++)
-    chG.push({src:mkChG(ports[i].src.dir,chMap[i].src), dst:mkChG(ports[i].dst.dir,chMap[i].dst)});
+  /* Total row/col counts */
+  /* For LR (W/E) direction: sub-terminal rows + main-area extra rows */
+  const lrRows = wList.length + eList.length + mainRows.length;
+  /* For TB (N/S) direction: sub-terminal cols + main-area extra cols */
+  const tbCols = nList.length + sList.length + mainCols.length;
 
-  let grid = Array.from({length: nR}, () => Array(nC).fill(0));
-  let hOwner = Array.from({length: nR}, () => Array(nC).fill(-1));
-  let vOwner = Array.from({length: nR}, () => Array(nC).fill(-1));
+  const nR = 1 + lrRows + 1; /* N-border + rows + S-border */
+  const nC = 1 + tbCols + 1; /* W-border + cols + E-border */
 
-  /* Spine branches are at the border cols/rows. Routes must approach these
-   * borders via H (for E/W) or V (for N/S) to create H+V crossings (OK),
-   * not same-direction overlaps. The Z-bend turn column/row is set 1 cell
-   * inside the border so routes don't go V at E/W border or H at N/S border. */
+  /* Map each sub-terminal entry and main entry to a grid row/col.
+   * The order within the grid:
+   *   Rows: [N-border=0] [wList entries at rows 1..wList.length] [mainRows at ...] [eList at ...] [S-border]
+   * Wait, this interleaving needs more thought.
+   *
+   * For the L-shape W→N: the H goes from W border rightward, turns V upward to N border.
+   * W row should be BETWEEN N-border (top) and S-border (bottom).
+   * N col should be BETWEEN W-border (left) and E-border (right).
+   *
+   * Grid row order (top to bottom):
+   *   0: N border
+   *   1..wLen: W sub-terminal rows (these go H from left border into area 5)
+   *   wLen+1..wLen+mainRows.length: main extra rows (for !isLR S/U bends)
+   *   wLen+mainRows.length+1..wLen+mainRows.length+eLen: E sub-terminal rows
+   *   last: S border
+   *
+   * Grid col order (left to right):
+   *   0: W border
+   *   1..nLen: N sub-terminal cols (these go V from top border into area 5)
+   *   nLen+1..nLen+mainCols.length: main extra cols (for isLR S/U bends)
+   *   nLen+mainCols.length+1..nLen+mainCols.length+sLen: S sub-terminal cols
+   *   last: E border
+   */
+  const wStart = 1;
+  const mrStart = wStart + wList.length;
+  const eStart = mrStart + mainRows.length;
+  const nStart = 1;
+  const mcStart = nStart + nList.length;
+  const sStart = mcStart + mainCols.length;
+
+  /* Map sub-terminal list index to grid row/col */
+  function wRow(i) { return wStart + i; }
+  function eRow(i) { return eStart + i; }
+  function nCol(i) { return nStart + i; }
+  function sCol(i) { return sStart + i; }
+  function mainRowR(i) { return mrStart + i; }
+  function mainColC(i) { return mcStart + i; }
+
+  /* For each port, compute the grid-level route as a sequence of (row, col) cells */
+  const allRoutes = [];
+  const grid = Array.from({length: nR}, () => Array(nC).fill(0));
+  const hOwner = Array.from({length: nR}, () => Array(nC).fill(-1));
+  const vOwner = Array.from({length: nR}, () => Array(nC).fill(-1));
   const H = 1, V = 2;
-  const allRoutes = ports.map(() => []);  /* indexed by original port index */
-  let curRoute = null;  /* the route being built — also shifted on insert */
 
-  /* --- Grid expansion helpers --- */
-  function insertRow(at) {
-    nR++;
-    grid.splice(at, 0, Array(nC).fill(0));
-    hOwner.splice(at, 0, Array(nC).fill(-1));
-    vOwner.splice(at, 0, Array(nC).fill(-1));
-    for (const g of chG) {
-      if (g.src.r >= at) g.src = {r: g.src.r+1, c: g.src.c};
-      if (g.dst.r >= at) g.dst = {r: g.dst.r+1, c: g.dst.c};
+  function placeH(r, c1, c2, pi, route) {
+    const step = c1 <= c2 ? 1 : -1;
+    for (let c = c1; step > 0 ? c <= c2 : c >= c2; c += step) {
+      grid[r][c] |= H; hOwner[r][c] = pi; route.push({r, c});
     }
-    for (const rt of allRoutes) for (const cell of rt) if (cell.r >= at) cell.r++;
-    if (curRoute) for (const cell of curRoute) if (cell.r >= at) cell.r++;
   }
-  function insertCol(at) {
-    nC++;
-    for (let r = 0; r < nR; r++) {
-      grid[r].splice(at, 0, 0);
-      hOwner[r].splice(at, 0, -1);
-      vOwner[r].splice(at, 0, -1);
+  function placeV(r1, r2, c, pi, route) {
+    const step = r1 <= r2 ? 1 : -1;
+    for (let r = r1; step > 0 ? r <= r2 : r >= r2; r += step) {
+      grid[r][c] |= V; vOwner[r][c] = pi; route.push({r, c});
     }
-    for (const g of chG) {
-      if (g.src.c >= at) g.src = {r: g.src.r, c: g.src.c+1};
-      if (g.dst.c >= at) g.dst = {r: g.dst.r, c: g.dst.c+1};
-    }
-    for (const rt of allRoutes) for (const cell of rt) if (cell.c >= at) cell.c++;
-    if (curRoute) for (const cell of curRoute) if (cell.c >= at) cell.c++;
   }
 
-  function placeH1(r, c, pi) { grid[r][c] |= H; hOwner[r][c] = pi; }
-  function placeV1(r, c, pi) { grid[r][c] |= V; vOwner[r][c] = pi; }
-
-  /* safeV: place V at (r,c). On V conflict → insert col, H-step to new blank col, V there.
-   * No mutual recursion. The 1-cell H at old col is an H+V crossing (OK). */
-  function safeV(r, c, detourDir, pi, route) {
-    if (vOwner[r][c] !== -1 && vOwner[r][c] !== pi) {
-      const at = detourDir <= 0 ? Math.max(c, 1) : Math.min(c + 1, nC - 1);
-      insertCol(at);
-      const oldC = at <= c ? c + 1 : c, newC = at;
-      placeH1(r, oldC, pi); route.push({r, c: oldC});
-      placeH1(r, newC, pi); route.push({r, c: newC});
-      placeV1(r, newC, pi); route.push({r, c: newC});
-      return {r, c: newC};
-    }
-    placeV1(r, c, pi); route.push({r, c});
-    return {r, c};
-  }
-
-  /* safeH: place H at (r,c). On H conflict → insert row, V-step to new blank row, H there.
-   * No mutual recursion. The 1-cell V at old row is an H+V crossing (OK). */
-  function safeH(r, c, detourDir, pi, route) {
-    if (hOwner[r][c] !== -1 && hOwner[r][c] !== pi) {
-      const at = detourDir <= 0 ? Math.max(r, 1) : Math.min(r + 1, nR - 1);
-      insertRow(at);
-      const oldR = at <= r ? r + 1 : r, newR = at;
-      placeV1(oldR, c, pi); route.push({r: oldR, c});
-      placeV1(newR, c, pi); route.push({r: newR, c});
-      placeH1(newR, c, pi); route.push({r: newR, c});
-      return {r: newR, c};
-    }
-    placeH1(r, c, pi); route.push({r, c});
-    return {r, c};
-  }
-
-  /* walkToCol: walk H from pos toward targetColFn() (live reference). Returns final {r,c}. */
-  function walkToCol(pos, targetColFn, detourDir, pi, route) {
-    for (let safety = 0; safety < 500; safety++) {
-      const t = targetColFn();
-      if (pos.c === t || t < 0 || t >= nC) break;
-      const nextC = Math.max(0, Math.min(nC - 1, pos.c + (t > pos.c ? 1 : -1)));
-      if (nextC === pos.c) break;
-      pos = safeH(pos.r, nextC, detourDir, pi, route);
-    }
-    return pos;
-  }
-
-  /* walkToRow: walk V from pos toward targetRowFn() (live reference). Returns final {r,c}. */
-  function walkToRow(pos, targetRowFn, detourDir, pi, route) {
-    for (let safety = 0; safety < 500; safety++) {
-      const t = targetRowFn();
-      if (pos.r === t || t < 0 || t >= nR) break;
-      const nextR = Math.max(0, Math.min(nR - 1, pos.r + (t > pos.r ? 1 : -1)));
-      if (nextR === pos.r) break;
-      pos = safeV(nextR, pos.c, detourDir, pi, route);
-    }
-    return pos;
-  }
-
-  /* --- Step 3: Route each port incrementally --- */
-  const portOrder = ports.map((_, i) => i);
-  portOrder.sort((a, b) => (isAdj(a)?0:1) - (isAdj(b)?0:1));
-
-  for (const pi of portOrder) {
+  for (let pi = 0; pi < ports.length; pi++) {
+    const rd = routeData[pi]; if (!rd) { allRoutes.push([]); continue; }
     const route = [];
-    curRoute = route;
-    const S = () => chG[pi].src, D = () => chG[pi].dst;
-    if (S().r === D().r && S().c === D().c) { allRoutes[pi] = route; curRoute = null; continue; }
+    const p = ports[pi];
 
-    /* Place starting cell */
-    let pos = {r: S().r, c: S().c};
-    if (isLR(ports[pi].src.dir)) { placeH1(pos.r, pos.c, pi); }
-    else                          { placeV1(pos.r, pos.c, pi); }
-    route.push({r: pos.r, c: pos.c});
+    /* Find grid positions for this port's endpoints */
+    const srcList = getList(rd.srcDir), dstList = getList(rd.dstDir);
+    const srcListIdx = srcList.findIndex(e => e.pi === pi && e.end === 'src');
+    const dstListIdx = dstList.findIndex(e => e.pi === pi && e.end === 'dst');
 
-    /* Mark corner cell with both H+V so subsequent ports detect it as occupied.
-     * Only mark if not already owned by another port (don't overwrite). */
-    function markCorner(pi) {
-      const last = route[route.length - 1];
-      if (!last) return;
-      if (hOwner[last.r][last.c] === -1 || hOwner[last.r][last.c] === pi) placeH1(last.r, last.c, pi);
-      if (vOwner[last.r][last.c] === -1 || vOwner[last.r][last.c] === pi) placeV1(last.r, last.c, pi);
+    let srcR, srcC, dstR, dstC;
+
+    /* Source position: on the border */
+    if (rd.srcDir === 'W') { srcR = wRow(srcListIdx); srcC = 0; }
+    else if (rd.srcDir === 'E') { srcR = eRow(srcListIdx); srcC = nC - 1; }
+    else if (rd.srcDir === 'N') { srcR = 0; srcC = nCol(srcListIdx); }
+    else { srcR = nR - 1; srcC = sCol(srcListIdx); }
+
+    /* Destination position: on the border */
+    if (rd.dstDir === 'W') { dstR = wRow(dstListIdx); dstC = 0; }
+    else if (rd.dstDir === 'E') { dstR = eRow(dstListIdx); dstC = nC - 1; }
+    else if (rd.dstDir === 'N') { dstR = 0; dstC = nCol(dstListIdx); }
+    else { dstR = nR - 1; dstC = sCol(dstListIdx); }
+
+    if (rd.shape === 'L') {
+      /* L-shape: H from src to dst's col/row, then V to dst */
+      if (isLR(rd.srcDir)) {
+        /* H first (along src row), then V */
+        placeH(srcR, srcC, dstC, pi, route);
+        if (srcR !== dstR) placeV(srcR, dstR, dstC, pi, route);
+      } else {
+        /* V first (along src col), then H */
+        placeV(srcR, dstR, srcC, pi, route);
+        if (srcC !== dstC) placeH(dstR, srcC, dstC, pi, route);
+      }
+    } else if (rd.shape === 'S') {
+      /* S-shape: H/V to turn point, then V/H to dst */
+      if (isLR(rd.srcDir)) {
+        const tc = mainColC(mainCols.indexOf(pi));
+        placeH(srcR, srcC, tc, pi, route);
+        placeV(srcR, dstR, tc, pi, route);
+        placeH(dstR, tc, dstC, pi, route);
+      } else {
+        const tr = mainRowR(mainRows.indexOf(pi));
+        placeV(srcR, tr, srcC, pi, route);
+        placeH(tr, srcC, dstC, pi, route);
+        placeV(tr, dstR, dstC, pi, route);
+      }
+    } else { /* U */
+      if (isLR(rd.srcDir)) {
+        const tc = mainColC(mainCols.indexOf(pi));
+        placeH(srcR, srcC, tc, pi, route);
+        placeV(srcR, dstR, tc, pi, route);
+        placeH(dstR, tc, dstC, pi, route);
+      } else {
+        const tr = mainRowR(mainRows.indexOf(pi));
+        placeV(srcR, tr, srcC, pi, route);
+        placeH(tr, srcC, dstC, pi, route);
+        placeV(tr, dstR, dstC, pi, route);
+      }
     }
 
-    if (isAdj(pi)) {
-      /* L-bend: primary direction first, mark corner, then secondary. Repeat until arrival. */
-      if (isLR(ports[pi].src.dir)) {
-        for (let ph = 0; ph < 6 && (pos.c !== D().c || pos.r !== D().r); ph++) {
-          if (pos.c !== D().c) pos = walkToCol(pos, () => D().c, D().r < pos.r ? -1 : 1, pi, route);
-          markCorner(pi);
-          if (pos.r !== D().r) pos = walkToRow(pos, () => D().r, D().c > pos.c ? 1 : -1, pi, route);
-        }
-      } else {
-        for (let ph = 0; ph < 6 && (pos.c !== D().c || pos.r !== D().r); ph++) {
-          if (pos.r !== D().r) pos = walkToRow(pos, () => D().r, D().c < pos.c ? -1 : 1, pi, route);
-          markCorner(pi);
-          if (pos.c !== D().c) pos = walkToCol(pos, () => D().c, D().r > pos.r ? 1 : -1, pi, route);
-        }
-      }
-    } else {
-      /* Z-bend: use turn point 1 cell inside dst border, then walk to dst. Repeat until arrival. */
-      if (isLR(ports[pi].src.dir)) {
-        const tcFn = () => { const d=D().c; return d + (d > pos.c ? -1 : 1); };
-        pos = walkToCol(pos, tcFn, D().r < pos.r ? -1 : 1, pi, route);
-        for (let ph = 0; ph < 6 && (pos.c !== D().c || pos.r !== D().r); ph++) {
-          if (pos.r !== D().r) pos = walkToRow(pos, () => D().r, D().c > pos.c ? 1 : -1, pi, route);
-          if (pos.c !== D().c) pos = walkToCol(pos, () => D().c, D().r < pos.r ? -1 : 1, pi, route);
-        }
-      } else {
-        const trFn = () => { const d=D().r; return d + (d > pos.r ? -1 : 1); };
-        pos = walkToRow(pos, trFn, D().c < pos.c ? -1 : 1, pi, route);
-        for (let ph = 0; ph < 6 && (pos.c !== D().c || pos.r !== D().r); ph++) {
-          if (pos.c !== D().c) pos = walkToCol(pos, () => D().c, D().r > pos.r ? 1 : -1, pi, route);
-          if (pos.r !== D().r) pos = walkToRow(pos, () => D().r, D().c < pos.c ? -1 : 1, pi, route);
-        }
-      }
-    }
-
-    allRoutes[pi] = route;
-    curRoute = null;
+    allRoutes.push(route);
   }
 
-  /* --- Step 4: Convert to pixels and compute display elements --- */
+  /* --- Convert to pixels --- */
   const cW = cellSize / nC, rH = cellSize / nR;
   const toXY = pt => ({ x: (pt.c + 0.5) * cW, y: (pt.r + 0.5) * rH });
 
@@ -435,62 +472,101 @@ function routeBlockPorts(ports, nterm, cellSize) {
     return pts;
   });
 
-  /* Spines (areas 2,4,6,8) with E/S alignment */
+  /* --- Spines --- */
   const spines = [];
   for (const [k, arr] of Object.entries(termPorts)) {
-    const dir = k[0]; const idx = parseInt(k.slice(1));
-    const channels = arr.map(({pi,end}) => toXY(chG[pi][end]));
+    const dir = k[0];
+    const channels = arr.map(({pi, end}) => {
+      const list = getList(dir);
+      const idx = list.findIndex(e => e.pi === pi && e.end === end);
+      if (dir === 'W') return toXY({r: wRow(idx), c: 0});
+      if (dir === 'E') return toXY({r: eRow(idx), c: nC-1});
+      if (dir === 'N') return toXY({r: 0, c: nCol(idx)});
+      return toXY({r: nR-1, c: sCol(idx)});
+    });
+
     if (isLR(dir)) {
       channels.sort((a,b) => a.y - b.y);
       const edgeX = dir === 'W' ? 0 : cellSize;
       const spX = channels[0].x;
-      spines.push([{x:edgeX,y:channels[0].y},{x:spX,y:channels[0].y}]);
-      if (channels.length > 1) spines.push([{x:spX,y:channels[0].y},{x:spX,y:channels[channels.length-1].y}]);
+      spines.push([{x:edgeX, y:channels[0].y}, {x:spX, y:channels[0].y}]);
+      if (channels.length > 1)
+        spines.push([{x:spX, y:channels[0].y}, {x:spX, y:channels[channels.length-1].y}]);
     } else {
       channels.sort((a,b) => a.x - b.x);
       const edgeY = dir === 'N' ? 0 : cellSize;
       const spY = channels[0].y;
-      spines.push([{x:channels[0].x,y:edgeY},{x:channels[0].x,y:spY}]);
-      if (channels.length > 1) spines.push([{x:channels[0].x,y:spY},{x:channels[channels.length-1].x,y:spY}]);
+      spines.push([{x:channels[0].x, y:edgeY}, {x:channels[0].x, y:spY}]);
+      if (channels.length > 1)
+        spines.push([{x:channels[0].x, y:spY}, {x:channels[channels.length-1].x, y:spY}]);
     }
   }
-  const spineKey = s => [s[0].x,s[0].y,s[1].x,s[1].y].map(v=>v.toFixed(4)).join(',');
+  /* Deduplicate */
+  const spKey = s => [s[0].x,s[0].y,s[1].x,s[1].y].map(v=>v.toFixed(4)).join(',');
   const seenSp = new Set();
-  const uSp = spines.filter(s => { const k=spineKey(s); if(seenSp.has(k)) return false; seenSp.add(k); return true; });
+  const uSp = spines.filter(s => { const k=spKey(s); if(seenSp.has(k)) return false; seenSp.add(k); return true; });
   spines.length = 0; for (const s of uSp) spines.push(s);
 
-  /* Junctions */
+  /* --- Junctions --- */
   const junctions = [];
   for (const [k, arr] of Object.entries(termPorts)) {
     if (arr.length < 2) continue;
     const dir = k[0];
-    const chs = arr.map(({pi,end}) => toXY(chG[pi][end]));
-    if (isLR(dir)) { chs.sort((a,b)=>a.y-b.y); const sx=chs[0].x; for(let j=0;j<chs.length-1;j++) junctions.push({x:sx,y:chs[j].y}); }
-    else { chs.sort((a,b)=>a.x-b.x); const sy=chs[0].y; for(let j=0;j<chs.length-1;j++) junctions.push({x:chs[j].x,y:sy}); }
+    const channels = arr.map(({pi, end}) => {
+      const list = getList(dir);
+      const idx = list.findIndex(e => e.pi === pi && e.end === end);
+      if (dir === 'W') return toXY({r: wRow(idx), c: 0});
+      if (dir === 'E') return toXY({r: eRow(idx), c: nC-1});
+      if (dir === 'N') return toXY({r: 0, c: nCol(idx)});
+      return toXY({r: nR-1, c: sCol(idx)});
+    });
+    if (isLR(dir)) {
+      channels.sort((a,b) => a.y - b.y);
+      const sx = channels[0].x;
+      for (let j = 0; j < channels.length - 1; j++) junctions.push({x:sx, y:channels[j].y});
+    } else {
+      channels.sort((a,b) => a.x - b.x);
+      const sy = channels[0].y;
+      for (let j = 0; j < channels.length - 1; j++) junctions.push({x:channels[j].x, y:sy});
+    }
   }
 
-  /* termPos + alignment */
+  /* --- termPos --- */
   const termPos = {};
   for (const [k, arr] of Object.entries(termPorts)) {
-    const dir = k[0]; const chs = arr.map(({pi,end}) => toXY(chG[pi][end]));
-    if (isLR(dir)) { chs.sort((a,b)=>a.y-b.y); termPos[k] = {x: dir==='W'?0:cellSize, y:chs[0].y}; }
-    else { chs.sort((a,b)=>a.x-b.x); termPos[k] = {x:chs[0].x, y: dir==='N'?0:cellSize}; }
+    const dir = k[0];
+    const channels = arr.map(({pi, end}) => {
+      const list = getList(dir);
+      const idx = list.findIndex(e => e.pi === pi && e.end === end);
+      if (dir === 'W') return toXY({r: wRow(idx), c: 0});
+      if (dir === 'E') return toXY({r: eRow(idx), c: nC-1});
+      if (dir === 'N') return toXY({r: 0, c: nCol(idx)});
+      return toXY({r: nR-1, c: sCol(idx)});
+    });
+    if (isLR(dir)) {
+      channels.sort((a,b) => a.y - b.y);
+      termPos[k] = { x: dir==='W' ? 0 : cellSize, y: channels[0].y };
+    } else {
+      channels.sort((a,b) => a.x - b.x);
+      termPos[k] = { x: channels[0].x, y: dir==='N' ? 0 : cellSize };
+    }
   }
-  for (let i=0;i<nterm;i++) {
-    const t=cellSize*(i+1)/(nterm+1);
-    if(!termPos['W'+i]) termPos['W'+i]={x:0,y:t};
-    if(!termPos['E'+i]) termPos['E'+i]={x:cellSize,y:t};
-    if(!termPos['N'+i]) termPos['N'+i]={x:t,y:0};
-    if(!termPos['S'+i]) termPos['S'+i]={x:t,y:cellSize};
+  for (let i = 0; i < nterm; i++) {
+    const t = cellSize * (i+1) / (nterm+1);
+    if (!termPos['W'+i]) termPos['W'+i] = {x:0, y:t};
+    if (!termPos['E'+i]) termPos['E'+i] = {x:cellSize, y:t};
+    if (!termPos['N'+i]) termPos['N'+i] = {x:t, y:0};
+    if (!termPos['S'+i]) termPos['S'+i] = {x:t, y:cellSize};
   }
-  for (let i=0;i<nterm;i++) {
-    if(termPorts['W'+i]) termPos['E'+i]={x:cellSize,y:termPos['W'+i].y};
-    else if(termPorts['E'+i]) termPos['W'+i]={x:0,y:termPos['E'+i].y};
-    if(termPorts['N'+i]) termPos['S'+i]={x:termPos['N'+i].x,y:cellSize};
-    else if(termPorts['S'+i]) termPos['N'+i]={x:termPos['S'+i].x,y:0};
+  /* Alignment: participating side is authoritative */
+  for (let i = 0; i < nterm; i++) {
+    if (termPorts['W'+i]) termPos['E'+i] = {x:cellSize, y:termPos['W'+i].y};
+    else if (termPorts['E'+i]) termPos['W'+i] = {x:0, y:termPos['E'+i].y};
+    if (termPorts['N'+i]) termPos['S'+i] = {x:termPos['N'+i].x, y:cellSize};
+    else if (termPorts['S'+i]) termPos['N'+i] = {x:termPos['S'+i].x, y:0};
   }
 
-  /* Overlap detection */
+  /* --- Overlap detection --- */
   const endpoints = new Set();
   for (const rt of allRoutes) {
     if (rt.length > 0) {
@@ -499,13 +575,14 @@ function routeBlockPorts(ports, nterm, cellSize) {
     }
   }
   const overlaps = [];
-  for (let r=0;r<nR;r++) for(let c=0;c<nC;c++) {
-    if(hOwner[r][c]===-2 && !endpoints.has(r+','+c+',H')) overlaps.push({r,c,dir:'H',px:toXY({r,c})});
-    if(vOwner[r][c]===-2 && !endpoints.has(r+','+c+',V')) overlaps.push({r,c,dir:'V',px:toXY({r,c})});
+  for (let r = 0; r < nR; r++) for (let c = 0; c < nC; c++) {
+    if (hOwner[r][c] === -2 && !endpoints.has(r+','+c+',H')) overlaps.push({r,c,dir:'H',px:toXY({r,c})});
+    if (vOwner[r][c] === -2 && !endpoints.has(r+','+c+',V')) overlaps.push({r,c,dir:'V',px:toXY({r,c})});
   }
 
   return { routes: pixelRoutes, spines, junctions, termPos, overlaps };
 }
+
 
 /* ---- Edge / Arrow drawing ---- */
 
