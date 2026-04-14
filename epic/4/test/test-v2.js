@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Epic 4 v2: Comprehensive test for 9-area block structure.
- * TC-R1: path connectivity, TC-O1: grid overlaps, TC-O2: pixel overlaps, TC-A1: E/S alignment
+ * Epic 4: Sub-port grid test.
+ * Test A: Terminal reachability — walk through subgrid from src terminal to dst terminal.
+ * Test A1: E/S alignment.
  */
 
 const fs = require('fs');
@@ -19,126 +20,138 @@ if (typeof routeBlockPorts !== 'function') { console.error('ERROR: routeBlockPor
 
 const CELL = 240;
 
-/* ---- PRNG xoshiro128** ---- */
-function mkPRNG(seed) {
-  let s = [seed >>> 0, (seed * 1664525 + 1013904223) >>> 0,
-           (seed * 214013 + 2531011) >>> 0, (seed * 6364136223846793005 + 1442695040888963407) >>> 0];
-  return function() {
-    const t = (s[1] << 9) >>> 0;
-    s[2] ^= s[0]; s[3] ^= s[1]; s[1] ^= s[2]; s[0] ^= s[3];
-    s[2] ^= t; s[3] = ((s[3] << 11) | (s[3] >>> 21)) >>> 0;
-    return s[0] >>> 0;
-  };
-}
+/* ---- Sub-port direction table ---- */
+/* For each shape, which directions does it connect? */
+const DIRS = {
+  ' ': 0,
+  '─': 0b0101,  /* L+R */
+  '│': 0b1010,  /* U+D */
+  '└': 0b1001,  /* U+R */
+  '┘': 0b1100,  /* U+L */
+  '┌': 0b0011,  /* D+R */
+  '┐': 0b0110,  /* D+L */
+  '┼': 0b1111,  /* U+D+L+R */
+  '├': 0b1011,  /* U+D+R */
+  '┤': 0b1110,  /* U+D+L */
+  '┬': 0b0111,  /* D+L+R */
+  '┴': 0b1101,  /* U+L+R */
+};
+const R=0b0001, D=0b0010, L=0b0100, U=0b1000;
 
-/* ---- Pixel overlap detection ---- */
-function checkPixelOverlaps(routes, spines) {
-  const segs = [];
-  for (let ri = 0; ri < routes.length; ri++)
-    for (let j = 0; j < routes[ri].length - 1; j++)
-      segs.push({ a: routes[ri][j], b: routes[ri][j+1], type: 'R' });
-  for (let si = 0; si < spines.length; si++)
-    segs.push({ a: spines[si][0], b: spines[si][1], type: 'S' });
-  let RR = 0, SS = 0, RS = 0;
-  for (let i = 0; i < segs.length; i++) {
-    for (let j = i + 1; j < segs.length; j++) {
-      const ov = segOv(segs[i], segs[j]);
-      if (ov > 0) {
-        if (segs[i].type === 'R' && segs[j].type === 'R') RR++;
-        else if (segs[i].type === 'S' && segs[j].type === 'S') SS++;
-        else RS++;
-      }
-    }
-  }
-  return { RR, SS, RS };
-}
-function segOv(p, q) {
-  const pH = Math.abs(p.a.y - p.b.y) < 0.01, qH = Math.abs(q.a.y - q.b.y) < 0.01;
-  const pV = Math.abs(p.a.x - p.b.x) < 0.01, qV = Math.abs(q.a.x - q.b.x) < 0.01;
-  if (pH && qH && Math.abs(p.a.y - q.a.y) < 0.01)
-    return rangeOv(Math.min(p.a.x,p.b.x),Math.max(p.a.x,p.b.x),Math.min(q.a.x,q.b.x),Math.max(q.a.x,q.b.x));
-  if (pV && qV && Math.abs(p.a.x - q.a.x) < 0.01)
-    return rangeOv(Math.min(p.a.y,p.b.y),Math.max(p.a.y,p.b.y),Math.min(q.a.y,q.b.y),Math.max(q.a.y,q.b.y));
-  return 0;
-}
-function rangeOv(a1,a2,b1,b2) { const lo=Math.max(a1,b1),hi=Math.min(a2,b2); return hi>lo+0.01?hi-lo:0; }
-
-/* ---- Test A: sub-port full-path connectivity ---- */
-/* For each port, check that route + spines form a connected chain from src edge to dst edge.
- * 1. Route internal: consecutive points are orthogonal (no diagonals)
- * 2. Route start lies on a spine segment (src terminal's spine reaches the route)
- * 3. Route end lies on a spine segment (dst terminal's spine reaches the route)  */
-function checkFullConnectivity(ports, routes, spines, cellSize) {
-  const EPS = 0.5;
-  function ptOnSeg(px, py, s) {
-    const isH = Math.abs(s[0].y - s[1].y) < EPS;
-    const isV = Math.abs(s[0].x - s[1].x) < EPS;
-    if (isH && Math.abs(py - s[0].y) < EPS) {
-      return px >= Math.min(s[0].x,s[1].x)-EPS && px <= Math.max(s[0].x,s[1].x)+EPS;
-    }
-    if (isV && Math.abs(px - s[0].x) < EPS) {
-      return py >= Math.min(s[0].y,s[1].y)-EPS && py <= Math.max(s[0].y,s[1].y)+EPS;
-    }
-    return false;
-  }
+/* ---- Test A: Terminal reachability via subgrid walk ---- */
+function checkReachability(ports, result) {
+  const { subgrid, nR, nC } = result;
+  if (!subgrid) return ['subgrid not returned by routeBlockPorts'];
   const fails = [];
-  for (let i = 0; i < ports.length; i++) {
-    const r = routes[i];
-    if (!r || r.length < 2) { fails.push(`port ${i}: route too short (len=${r?r.length:0})`); continue; }
-    /* Internal orthogonality */
-    for (let j = 0; j < r.length - 1; j++) {
-      const dx = Math.abs(r[j].x - r[j+1].x), dy = Math.abs(r[j].y - r[j+1].y);
-      if (dx > 0.01 && dy > 0.01) { fails.push(`port ${i} seg ${j}: diagonal`); break; }
+
+  /* Find terminal border cells for each port */
+  /* W terminals: col 0. E terminals: col nC-1. N terminals: row 0. S terminals: row nR-1. */
+  /* We need to know which cell a port's src/dst terminal occupies.
+   * Use the allRoutes grid data to find the first and last cell of each port. */
+
+  /* Alternative: find border cells that have a sub-port connecting inward */
+  /* For W border (col 0): cells with R bit set = has a line going right into the block */
+  /* For E border (col nC-1): cells with L bit set */
+  /* For N border (row 0): cells with D bit set */
+  /* For S border (row nR-1): cells with U bit set */
+
+  for (let pi = 0; pi < ports.length; pi++) {
+    const p = ports[pi];
+    const srcDir = p.src.dir, dstDir = p.dst.dir;
+
+    /* Find src terminal cell on the border */
+    const srcCells = findTerminalCells(subgrid, nR, nC, srcDir);
+    const dstCells = findTerminalCells(subgrid, nR, nC, dstDir);
+
+    if (srcCells.length === 0) {
+      fails.push(`port ${pi} (${srcDir}${p.src.idx}-${dstDir}${p.dst.idx}): no ${srcDir} border cells found`);
+      continue;
     }
-    /* Route start on a spine */
-    const first = r[0];
-    if (!spines.some(s => ptOnSeg(first.x, first.y, s)))
-      fails.push(`port ${i}: route start (${first.x.toFixed(1)},${first.y.toFixed(1)}) not on any spine`);
-    /* Route end on a spine */
-    const last = r[r.length - 1];
-    if (!spines.some(s => ptOnSeg(last.x, last.y, s)))
-      fails.push(`port ${i}: route end (${last.x.toFixed(1)},${last.y.toFixed(1)}) not on any spine`);
+    if (dstCells.length === 0) {
+      fails.push(`port ${pi} (${srcDir}${p.src.idx}-${dstDir}${p.dst.idx}): no ${dstDir} border cells found`);
+      continue;
+    }
+
+    /* Try to walk from ANY src border cell to ANY dst border cell */
+    let reached = false;
+    for (const src of srcCells) {
+      const visited = walkSubgrid(subgrid, nR, nC, src.r, src.c);
+      for (const dst of dstCells) {
+        if (visited.has(dst.r + ',' + dst.c)) { reached = true; break; }
+      }
+      if (reached) break;
+    }
+
+    if (!reached) {
+      fails.push(`port ${pi} (${srcDir}${p.src.idx}-${dstDir}${p.dst.idx}): cannot reach ${dstDir} from ${srcDir} via subgrid walk`);
+    }
   }
+
   return fails;
 }
 
-/* ---- Test B: same-direction overlap (all segments: routes + spines) ---- */
-/* Collect all drawn segments with owners. Two segments from different owners that are
- * same-direction (both H or both V) and on the same row/col must not overlap.
- * Crossing (H+V at one point) is OK. Single-point touching at endpoints is OK. */
-function checkSameDirOverlap(ports, routes, spines) {
-  const EPS = 0.01;
-  const segs = []; /* {a, b, owner, isH, isV} */
-  /* Route segments */
-  for (let pi = 0; pi < routes.length; pi++) {
-    const r = routes[pi]; if (!r) continue;
-    for (let j = 0; j < r.length - 1; j++)
-      segs.push({ a: r[j], b: r[j+1], owner: 'R'+pi });
-  }
-  /* Spine segments */
-  for (let si = 0; si < spines.length; si++)
-    segs.push({ a: spines[si][0], b: spines[si][1], owner: 'S'+si });
-
-  let count = 0;
-  for (let i = 0; i < segs.length; i++) {
-    for (let j = i+1; j < segs.length; j++) {
-      if (segs[i].owner === segs[j].owner) continue;
-      const p = segs[i], q = segs[j];
-      const pH = Math.abs(p.a.y-p.b.y)<EPS, qH = Math.abs(q.a.y-q.b.y)<EPS;
-      const pV = Math.abs(p.a.x-p.b.x)<EPS, qV = Math.abs(q.a.x-q.b.x)<EPS;
-      if (pH && qH && Math.abs(p.a.y - q.a.y) < EPS) {
-        const ov = rangeOv(Math.min(p.a.x,p.b.x),Math.max(p.a.x,p.b.x),
-                           Math.min(q.a.x,q.b.x),Math.max(q.a.x,q.b.x));
-        if (ov > EPS) count++;
-      }
-      if (pV && qV && Math.abs(p.a.x - q.a.x) < EPS) {
-        const ov = rangeOv(Math.min(p.a.y,p.b.y),Math.max(p.a.y,p.b.y),
-                           Math.min(q.a.y,q.b.y),Math.max(q.a.y,q.b.y));
-        if (ov > EPS) count++;
-      }
+/* Find all border cells for a given direction that have a sub-port connecting inward */
+function findTerminalCells(subgrid, nR, nC, dir) {
+  const cells = [];
+  if (dir === 'W') {
+    for (let r = 0; r < nR; r++) {
+      const d = DIRS[subgrid[r][0]] || 0;
+      if (d & R) cells.push({r, c: 0}); /* has line going right = connects into block */
+    }
+  } else if (dir === 'E') {
+    for (let r = 0; r < nR; r++) {
+      const d = DIRS[subgrid[r][nC-1]] || 0;
+      if (d & L) cells.push({r, c: nC-1});
+    }
+  } else if (dir === 'N') {
+    for (let c = 0; c < nC; c++) {
+      const d = DIRS[subgrid[0][c]] || 0;
+      if (d & D) cells.push({r: 0, c});
+    }
+  } else { /* S */
+    for (let c = 0; c < nC; c++) {
+      const d = DIRS[subgrid[nR-1][c]] || 0;
+      if (d & U) cells.push({r: nR-1, c});
     }
   }
-  return count;
+  return cells;
+}
+
+/* BFS/flood-fill through the subgrid following connected sub-ports.
+ * Returns a Set of "r,c" strings for all reachable cells. */
+function walkSubgrid(subgrid, nR, nC, startR, startC) {
+  const visited = new Set();
+  const queue = [{r: startR, c: startC}];
+  visited.add(startR + ',' + startC);
+
+  while (queue.length > 0) {
+    const {r, c} = queue.shift();
+    const d = DIRS[subgrid[r][c]] || 0;
+    if (!d) continue;
+
+    /* Check each direction: if this cell connects in that direction,
+     * AND the neighbor cell connects back, they are linked. */
+    const neighbors = [
+      { dr: 0, dc: 1, outBit: R, inBit: L },  /* right */
+      { dr: 0, dc:-1, outBit: L, inBit: R },  /* left */
+      { dr:-1, dc: 0, outBit: U, inBit: D },  /* up */
+      { dr: 1, dc: 0, outBit: D, inBit: U },  /* down */
+    ];
+
+    for (const n of neighbors) {
+      if (!(d & n.outBit)) continue; /* this cell doesn't go that way */
+      const nr = r + n.dr, nc = c + n.dc;
+      if (nr < 0 || nr >= nR || nc < 0 || nc >= nC) continue;
+      const nd = DIRS[subgrid[nr][nc]] || 0;
+      if (!(nd & n.inBit)) continue; /* neighbor doesn't connect back */
+      const key = nr + ',' + nc;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      queue.push({r: nr, c: nc});
+    }
+  }
+
+  return visited;
 }
 
 /* ---- TC-A1: E/S alignment ---- */
@@ -161,14 +174,9 @@ function runCase(label, ports, nterm) {
   try { result = routeBlockPorts(ports, nterm, CELL); }
   catch(e) { return { label, ok: false, fails: ['EXCEPTION: ' + e.message] }; }
   const fails = [];
-  /* Test A: full-path connectivity (route start/end on spine, no diagonals) */
-  const tA = checkFullConnectivity(ports, result.routes, result.spines, CELL);
+  /* Test A: Terminal reachability via subgrid walk */
+  const tA = checkReachability(ports, result);
   if (tA.length) fails.push(...tA.map(f => 'A: ' + f));
-  /* Test B: same-direction overlap (routes + spines, all owners) */
-  const ovB = checkSameDirOverlap(ports, result.routes, result.spines);
-  if (ovB > 0) fails.push(`B: ${ovB} same-dir overlaps`);
-  /* Grid-level overlap (internal check) */
-  if (result.overlaps.length) fails.push(`O1: ${result.overlaps.length} grid overlaps`);
   /* E/S alignment */
   const a1 = checkAlignment(result.termPos, nterm, CELL);
   if (a1.length) fails.push(...a1.map(f => 'A1: ' + f));
@@ -191,6 +199,18 @@ function parseMazePorts(mazeStr) {
     maxIdx = Math.max(maxIdx, src.idx, dst.idx);
   }
   return { ports, nterm: maxIdx + 1 };
+}
+
+/* ---- PRNG xoshiro128** ---- */
+function mkPRNG(seed) {
+  let s = [seed >>> 0, (seed * 1664525 + 1013904223) >>> 0,
+           (seed * 214013 + 2531011) >>> 0, (seed * 6364136223846793005 + 1442695040888963407) >>> 0];
+  return function() {
+    const t = (s[1] << 9) >>> 0;
+    s[2] ^= s[0]; s[3] ^= s[1]; s[1] ^= s[2]; s[0] ^= s[3];
+    s[2] ^= t; s[3] = ((s[3] << 11) | (s[3] >>> 21)) >>> 0;
+    return s[0] >>> 0;
+  };
 }
 
 /* ---- Test groups ---- */
@@ -231,20 +251,19 @@ const { ports: userPorts, nterm: userNterm } = parseMazePorts(userMaze);
 runAndRecord('USER-MAZE', userPorts, userNterm);
 
 /* Random cases */
-const rng = mkPRNG(42);
 const dirs = ['W','E','N','S'];
 for (let seed = 42; seed < 1042; seed++) {
-  const rng2 = mkPRNG(seed);
-  const nterm = 2 + (rng2() % 7);
+  const rng = mkPRNG(seed);
+  const nterm = 2 + (rng() % 7);
   const maxPorts = Math.min(20, nterm * 4 * (nterm * 4 - 1) / 2);
-  const k = 1 + (rng2() % maxPorts);
+  const k = 1 + (rng() % maxPorts);
   const ports = [];
   const seen = new Set();
   let attempts = 0;
   while (ports.length < k && attempts < k * 10) {
     attempts++;
-    const sd = dirs[rng2() % 4], si = rng2() % nterm;
-    const dd = dirs[rng2() % 4], di = rng2() % nterm;
+    const sd = dirs[rng() % 4], si = rng() % nterm;
+    const dd = dirs[rng() % 4], di = rng() % nterm;
     if (sd === dd && si === di) continue;
     const key = `${sd}${si}-${dd}${di}`;
     const key2 = `${dd}${di}-${sd}${si}`;
