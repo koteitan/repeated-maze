@@ -178,8 +178,9 @@
       for (let i = 0; i < list.length; i++) {
         const e = list[i];
         const c = { W: 0, E: 0, N: 0, S: 0 };
-        /* Outward (toward terminal outside the block) */
-        c[e.dir] = 1;
+        /* Outward (toward terminal outside the block) — only s=0 per
+         * diagonal.md §63 "Dt-0 の connect[D]". */
+        if (e.s === 0) c[e.dir] = 1;
         /* Inward (Lee-routed subport) */
         if (e.dir === 'W') c.E = 1;
         if (e.dir === 'E') c.W = 1;
