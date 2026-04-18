@@ -11,10 +11,17 @@ const path = require('path');
 /* ---- Extract routeBlockPorts from index.html ---- */
 const htmlPath = path.resolve(__dirname, '..', '..', '..', 'index.html');
 const html = fs.readFileSync(htmlPath, 'utf8');
+/* Find the inline <script> (no attributes) — skip <script src=...> tags. */
 const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);
-if (!scriptMatch) { console.error('ERROR: no <script>'); process.exit(1); }
+if (!scriptMatch) { console.error('ERROR: no inline <script>'); process.exit(1); }
 const jsCode = scriptMatch[1];
 const drawIdx = jsCode.indexOf('function draw()');
+
+/* The inline script now calls buildBlockSubgrid (from lee/index_adapter.js).
+ * Load the adapter and its lee/ dependencies into globals before eval. */
+const leeRoot = path.resolve(__dirname, '..', '..', '..', 'lee');
+global.buildBlockSubgrid = require(path.join(leeRoot, 'index_adapter.js')).buildBlockSubgrid;
+
 eval(jsCode.substring(0, drawIdx));
 if (typeof routeBlockPorts !== 'function') { console.error('ERROR: routeBlockPorts not found'); process.exit(1); }
 
