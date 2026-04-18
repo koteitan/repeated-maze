@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 /**
- * Epic 4: Sub-port grid test.
- * Test A: Terminal reachability — walk through subgrid from src terminal to dst terminal.
- * Test A1: E/S alignment.
+ * Port reachability test for the maze visualizer.
+ * Test A: for each port, walk the subgrid from the src terminal to the dst
+ *         terminal and verify BFS reaches it.
+ * Test A1: termPos alignment — W[i].y == E[i].y, N[i].x == S[i].x,
+ *          E[i].x == cellSize, S[i].y == cellSize.
  */
 
 const fs = require('fs');
 const path = require('path');
 
 /* ---- Extract routeBlockPorts from index.html ---- */
-const htmlPath = path.resolve(__dirname, '..', '..', '..', 'index.html');
+const projectRoot = path.resolve(__dirname, '..');
+const htmlPath = path.join(projectRoot, 'index.html');
 const html = fs.readFileSync(htmlPath, 'utf8');
 /* Find the inline <script> (no attributes) — skip <script src=...> tags. */
 const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);
@@ -19,7 +22,7 @@ const drawIdx = jsCode.indexOf('function draw()');
 
 /* The inline script now calls buildBlockSubgrid (from lee/index_adapter.js).
  * Load the adapter and its lee/ dependencies into globals before eval. */
-const leeRoot = path.resolve(__dirname, '..', '..', '..', 'lee');
+const leeRoot = path.join(projectRoot, 'lee');
 global.buildBlockSubgrid = require(path.join(leeRoot, 'index_adapter.js')).buildBlockSubgrid;
 
 eval(jsCode.substring(0, drawIdx));
