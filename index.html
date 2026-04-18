@@ -35,6 +35,7 @@ try {
   <label><input type="checkbox" id="chk-normal" checked> normal</label>
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-simple"> x,y only</label>
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-directed"> directed</label>
+  <label style="margin-left: 12px;"><input type="checkbox" id="chk-step" checked> step</label>
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-darkmode"> darkmode</label>
 </div>
 <button id="draw-btn">Draw Maze</button>
@@ -278,26 +279,45 @@ function setupCanvas(canvasId, wrapId, bounds) {
   canvas.height = Math.round(cssH * dpr);
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  /* Half-pixel offset so 1-wide strokes land on the pixel centre rather
-   * than straddling two pixels with 50% alpha each. */
-  ctx.translate(0.5, 0.5);
   ctx.imageSmoothingEnabled = false;
 
   function bpos(bx, by) {
     return { x: MARGIN + (bx - minX) * CELL, y: MARGIN + (maxY - by) * CELL };
   }
 
+  /* Crisp 1-pixel primitives via fillRect (no anti-aliasing).
+   * Endpoint-based to guarantee the corner pixel is shared by the two
+   * meeting segments even when the subblock centre is at a non-integer
+   * coordinate (fixes the 1-dot overshoot at L-corners). */
+  const px = Math.round;
+  function hlineBetween(x1, y, x2) {
+    const a = px(Math.min(x1, x2)), b = px(Math.max(x1, x2));
+    ctx.fillRect(a, px(y), b - a + 1, 1);
+  }
+  function vlineBetween(x, y1, y2) {
+    const a = px(Math.min(y1, y2)), b = px(Math.max(y1, y2));
+    ctx.fillRect(px(x), a, 1, b - a + 1);
+  }
+  function rectOutline(x, y, w, h) {
+    const xi = px(x), yi = px(y);
+    const wi = Math.max(1, px(x + w) - xi);
+    const hi = Math.max(1, px(y + h) - yi);
+    ctx.fillRect(xi, yi, wi, 1);          /* top */
+    ctx.fillRect(xi, yi + hi - 1, wi, 1); /* bottom */
+    ctx.fillRect(xi, yi, 1, hi);          /* left */
+    ctx.fillRect(xi + wi - 1, yi, 1, hi); /* right */
+  }
+
   /* Clear */
   ctx.fillStyle = color('canvas-bg');
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, canvas.width / dpr, canvas.height / dpr);
 
-  /* Grid cells */
+  /* Grid cells — 1-pixel outline via fillRect (no AA). */
+  ctx.fillStyle = color('block-grid');
   for (let bx = minX; bx <= maxX; bx++) {
     for (let by = minY; by <= maxY; by++) {
       const bp = bpos(bx, by);
-      ctx.strokeStyle = color('block-grid');
-      ctx.lineWidth = 1;
-      ctx.strokeRect(bp.x, bp.y, CELL, CELL);
+      rectOutline(bp.x, bp.y, CELL, CELL);
     }
   }
 
@@ -317,13 +337,13 @@ function setupCanvas(canvasId, wrapId, bounds) {
     ctx.fillText(by, bp.x - 6 * S, bp.y + CELL / 2);
   }
 
-  return { ctx, bpos, CELL, MARGIN, S };
+  return { ctx, bpos, CELL, MARGIN, S, hlineBetween, vlineBetween, rectOutline };
 }
 
 /* ---- Draw normal view ---- */
 
 function drawNormal(maze, path, nterm, bounds, directed) {
-  const { ctx, bpos, CELL, MARGIN, S } = setupCanvas('canvas', 'canvas-wrap', bounds);
+  const { ctx, bpos, CELL, MARGIN, S, hlineBetween, vlineBetween } = setupCanvas('canvas', 'canvas-wrap', bounds);
   const { minX, maxX, minY, maxY } = bounds;
 
   /* Compute grid-aligned terminal positions and routes for this maze */
@@ -341,6 +361,38 @@ function drawNormal(maze, path, nterm, bounds, directed) {
     }
     gridResult = routeBlockPorts(deduped0, nterm, CELL);
     gridTermPos = gridResult.termPos;
+  }
+  const portInfo = gridResult ? gridResult.portInfo || [] : [];
+
+  /* Per-path-segment endpoint resolver: picks the subterminal position
+   * the specific port actually uses, so the answer path visually lands
+   * on the Lee-routed subport (not the first-subterm representative). */
+  const OPP = { E: 'W', W: 'E', N: 'S', S: 'N' };
+  const DELTA = { E: [1, 0], W: [-1, 0], N: [0, 1], S: [0, -1] };
+  function segmentPortEnds(sA, sB) {
+    if (!portInfo.length || !maze.normal) return null;
+    const aOwn = { x: sA.x, y: sA.y };
+    const aOther = { x: sA.x + DELTA[sA.dir][0], y: sA.y + DELTA[sA.dir][1] };
+    const bOwn = { x: sB.x, y: sB.y };
+    const bOther = { x: sB.x + DELTA[sB.dir][0], y: sB.y + DELTA[sB.dir][1] };
+    const eq = (p, q) => p.x === q.x && p.y === q.y;
+    let B = null, aTerm, bTerm;
+    if (eq(aOther, bOwn))         { B = aOther; aTerm = { dir: OPP[sA.dir], idx: sA.idx }; bTerm = { dir: sB.dir,        idx: sB.idx }; }
+    else if (eq(aOwn, bOther))    { B = aOwn;   aTerm = { dir: sA.dir,      idx: sA.idx }; bTerm = { dir: OPP[sB.dir],   idx: sB.idx }; }
+    else if (eq(aOther, bOther))  { B = aOther; aTerm = { dir: OPP[sA.dir], idx: sA.idx }; bTerm = { dir: OPP[sB.dir],   idx: sB.idx }; }
+    else if (eq(aOwn, bOwn))      { B = aOwn;   aTerm = { dir: sA.dir,      idx: sA.idx }; bTerm = { dir: sB.dir,        idx: sB.idx }; }
+    else return null;
+    if (B.x < 1 || B.y < 1) return null;
+    for (let pi = 0; pi < portInfo.length; pi++) {
+      const pp = portInfo[pi];
+      const srcMatchesA = pp.srcDir === aTerm.dir && pp.srcIdx === aTerm.idx;
+      const dstMatchesB = pp.dstDir === bTerm.dir && pp.dstIdx === bTerm.idx;
+      const srcMatchesB = pp.srcDir === bTerm.dir && pp.srcIdx === bTerm.idx;
+      const dstMatchesA = pp.dstDir === aTerm.dir && pp.dstIdx === aTerm.idx;
+      if (srcMatchesA && dstMatchesB) return { B, aPos: pp.src, bPos: pp.dst };
+      if (srcMatchesB && dstMatchesA) return { B, aPos: pp.dst, bPos: pp.src };
+    }
+    return null;
   }
 
   function statePos(s) {
@@ -386,20 +438,38 @@ function drawNormal(maze, path, nterm, bounds, directed) {
     }
   }
 
-  /* Draw polyline through waypoints */
+  /* Pixel budget check: when sub-blocks shrink below ~2 CSS pixels the
+   * fillRect path produces visible gaps/collisions. Fall back to a
+   * 1-pixel antialiased stroke so the line stays visually continuous. */
+  const gridSG = gridResult && gridResult.nC && gridResult.nR
+    ? Math.min(CELL / gridResult.nC, CELL / gridResult.nR)
+    : CELL;
+  const crisp = gridSG >= 2;
+
+  /* Draw polyline through waypoints — axis-aligned only. Use fillRect when
+   * there is enough pixel budget; else stroke with AA. */
   function drawPolyline(pts, ox, oy) {
     if (pts.length < 2) return;
-    ctx.save();
-    ctx.strokeStyle = color('stroke');
-    ctx.lineWidth = 1;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(ox + pts[0].x, oy + pts[0].y);
-    for (let i = 1; i < pts.length; i++)
-      ctx.lineTo(ox + pts[i].x, oy + pts[i].y);
-    ctx.stroke();
-    ctx.restore();
+    if (crisp) {
+      ctx.fillStyle = color('stroke');
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1], b = pts[i];
+        const ax = ox + a.x, ay = oy + a.y;
+        const bx = ox + b.x, by = oy + b.y;
+        if (Math.abs(ay - by) < 0.5) hlineBetween(ax, ay, bx);
+        else if (Math.abs(ax - bx) < 0.5) vlineBetween(ax, ay, by);
+      }
+    } else {
+      ctx.save();
+      ctx.strokeStyle = color('stroke');
+      ctx.lineWidth = 1;
+      ctx.lineCap = 'butt';
+      ctx.beginPath();
+      ctx.moveTo(ox + pts[0].x, oy + pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(ox + pts[i].x, oy + pts[i].y);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   /* Normal port edges inside each block */
@@ -411,11 +481,12 @@ function drawNormal(maze, path, nterm, bounds, directed) {
       for (let by = minY; by <= maxY; by++) {
         if (bx < 1 || by < 1) continue;
         const bp = bpos(bx, by);
-        /* Draw each sub-block cell */
-        ctx.save();
-        ctx.strokeStyle = color('stroke');
-        ctx.lineWidth = 1;
-        ctx.lineCap = 'round';
+        ctx.fillStyle = color('stroke');
+        if (!crisp) {
+          ctx.strokeStyle = color('stroke');
+          ctx.lineWidth = 1;
+          ctx.lineCap = 'butt';
+        }
         for (let r = 0; r < sgR; r++) {
           for (let c = 0; c < sgC; c++) {
             const shape = subgrid[r][c];
@@ -423,16 +494,21 @@ function drawNormal(maze, path, nterm, bounds, directed) {
             const cx = bp.x + (c + 0.5) * sgCW;
             const cy = bp.y + (r + 0.5) * sgRH;
             const hw = sgCW / 2, hh = sgRH / 2;
-            ctx.beginPath();
-            /* Draw lines from center to edges based on shape */
-            if ('─┘┐┼┬┴┤'.includes(shape)) { ctx.moveTo(cx - hw, cy); ctx.lineTo(cx, cy); } /* left */
-            if ('─└┌┼┬┴├'.includes(shape)) { ctx.moveTo(cx, cy); ctx.lineTo(cx + hw, cy); } /* right */
-            if ('│└┘┼┴├┤'.includes(shape)) { ctx.moveTo(cx, cy - hh); ctx.lineTo(cx, cy); } /* up */
-            if ('│┌┐┼┬├┤'.includes(shape)) { ctx.moveTo(cx, cy); ctx.lineTo(cx, cy + hh); } /* down */
-            ctx.stroke();
+            if (crisp) {
+              if ('─┘┐┼┬┴┤'.includes(shape)) hlineBetween(cx - hw, cy, cx); /* left */
+              if ('─└┌┼┬┴├'.includes(shape)) hlineBetween(cx, cy, cx + hw); /* right */
+              if ('│└┘┼┴├┤'.includes(shape)) vlineBetween(cx, cy - hh, cy); /* up */
+              if ('│┌┐┼┬├┤'.includes(shape)) vlineBetween(cx, cy, cy + hh); /* down */
+            } else {
+              ctx.beginPath();
+              if ('─┘┐┼┬┴┤'.includes(shape)) { ctx.moveTo(cx - hw, cy); ctx.lineTo(cx, cy); }
+              if ('─└┌┼┬┴├'.includes(shape)) { ctx.moveTo(cx, cy); ctx.lineTo(cx + hw, cy); }
+              if ('│└┘┼┴├┤'.includes(shape)) { ctx.moveTo(cx, cy - hh); ctx.lineTo(cx, cy); }
+              if ('│┌┐┼┬├┤'.includes(shape)) { ctx.moveTo(cx, cy); ctx.lineTo(cx, cy + hh); }
+              ctx.stroke();
+            }
           }
         }
-        ctx.restore();
         /* Junction dots */
         for (const j of junctions) {
           ctx.beginPath();
@@ -566,41 +642,100 @@ function drawNormal(maze, path, nterm, bounds, directed) {
   ctx.fillText('Goal', goalPos.x - arrowLen - labelGap, goalPos.y);
   ctx.restore();
 
-  /* Path line — use L-bends instead of diagonal lines */
+  /* Path line — L-bend segments drawn at 1 pixel via fillRect (crisp)
+   * with an AA-stroke fallback when the canvas is too small. */
   if (path.length > 1) {
-    ctx.save();
-    ctx.strokeStyle = color('path');
-    ctx.lineWidth = 6 * S;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    let p0 = statePos(path[0]);
-    ctx.moveTo(p0.x, p0.y);
+    if (crisp) {
+      ctx.fillStyle = color('path');
+    } else {
+      ctx.save();
+      ctx.strokeStyle = color('path');
+      ctx.lineWidth = 1;
+      ctx.lineCap = 'butt';
+      ctx.beginPath();
+      ctx.moveTo(statePos(path[0]).x, statePos(path[0]).y);
+    }
     for (let i = 1; i < path.length; i++) {
-      const prev = statePos(path[i - 1]);
-      const p = statePos(path[i]);
+      /* Try to resolve both endpoints to the subterminal positions the
+       * actual port uses (so the line aligns with the Lee subport). */
+      let prev, p;
+      const ends = segmentPortEnds(path[i - 1], path[i]);
+      if (ends) {
+        const bp = bpos(ends.B.x, ends.B.y);
+        prev = { x: bp.x + ends.aPos.x, y: bp.y + ends.aPos.y };
+        p    = { x: bp.x + ends.bPos.x, y: bp.y + ends.bPos.y };
+      } else {
+        prev = statePos(path[i - 1]);
+        p    = statePos(path[i]);
+      }
       const dx = Math.abs(p.x - prev.x), dy = Math.abs(p.y - prev.y);
+      /* L-bend: pick the corner point so the last segment matches the
+       * arriving state's edge orientation (E/W → horizontal last). */
+      let bend = null;
       if (dx > 0.5 && dy > 0.5) {
-        /* Determine L-bend direction based on state types:
-         * E-type state is on a vertical edge (left/right) → approach horizontally
-         * N-type state is on a horizontal edge (top/bottom) → approach vertically
-         * For the arriving state (path[i]), use its type to decide last segment. */
-        if (path[i].dir === 'N') {
-          /* Arriving at top/bottom edge: last segment is vertical → horizontal first */
-          ctx.lineTo(p.x, prev.y);
-        } else {
-          /* Arriving at left/right edge: last segment is horizontal → vertical first */
-          ctx.lineTo(prev.x, p.y);
+        bend = (path[i].dir === 'N')
+          ? { x: p.x, y: prev.y }       /* horizontal first, then vertical */
+          : { x: prev.x, y: p.y };      /* vertical first, then horizontal */
+      }
+      if (crisp) {
+        const drawSeg = (a, b) => {
+          if (Math.abs(a.y - b.y) < 0.5) hlineBetween(a.x, a.y, b.x);
+          else if (Math.abs(a.x - b.x) < 0.5) vlineBetween(a.x, a.y, b.y);
+        };
+        if (bend) { drawSeg(prev, bend); drawSeg(bend, p); }
+        else drawSeg(prev, p);
+      } else {
+        if (bend) ctx.lineTo(bend.x, bend.y);
+        ctx.lineTo(p.x, p.y);
+      }
+      /* Directed mode: add an arrowhead at each segment endpoint,
+       * aligned with the final approach direction (post-bend if any). */
+      if (directed) {
+        const from = bend || prev;
+        if (Math.abs(from.x - p.x) + Math.abs(from.y - p.y) > 0.5) {
+          const ang = Math.atan2(p.y - from.y, p.x - from.x);
+          const spread = Math.PI / 6;
+          const hl = Math.max(6, 10 * S);
+          ctx.save();
+          ctx.strokeStyle = color('path');
+          ctx.fillStyle = color('path');
+          ctx.lineWidth = 1;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.beginPath();
+          ctx.moveTo(p.x - hl * Math.cos(ang - spread), p.y - hl * Math.sin(ang - spread));
+          ctx.lineTo(p.x, p.y);
+          ctx.lineTo(p.x - hl * Math.cos(ang + spread), p.y - hl * Math.sin(ang + spread));
+          ctx.stroke();
+          ctx.restore();
         }
       }
-      ctx.lineTo(p.x, p.y);
     }
-    ctx.stroke();
-    ctx.restore();
+    if (!crisp) { ctx.stroke(); ctx.restore(); }
 
-    /* Step number circles */
-    for (let i = 0; i < path.length; i++) {
-      const p = statePos(path[i]);
+    /* Step number circles (disable via [ ] step). */
+    const showStep = document.getElementById('chk-step').checked;
+    if (showStep) for (let i = 0; i < path.length; i++) {
+      /* Snap the step circle to the actual port-subterminal position so
+       * it sits on the (shifted) path line instead of the representative
+       * statePos. Prefer the outgoing segment's endpoint; fall back to
+       * the incoming segment for the last state. */
+      let p;
+      if (i < path.length - 1) {
+        const ends = segmentPortEnds(path[i], path[i + 1]);
+        if (ends) {
+          const bp = bpos(ends.B.x, ends.B.y);
+          p = { x: bp.x + ends.aPos.x, y: bp.y + ends.aPos.y };
+        }
+      }
+      if (!p && i > 0) {
+        const ends = segmentPortEnds(path[i - 1], path[i]);
+        if (ends) {
+          const bp = bpos(ends.B.x, ends.B.y);
+          p = { x: bp.x + ends.bPos.x, y: bp.y + ends.bPos.y };
+        }
+      }
+      if (!p) p = statePos(path[i]);
       const r = ((i >= 100) ? 26 : 20) * S;
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, 0, 2 * Math.PI);
@@ -751,13 +886,16 @@ function drawSimple(path, bounds) {
   ctx.fillStyle = color('canvas-bg');
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  /* Grid */
-  ctx.strokeStyle = color('block-grid-light');
-  ctx.lineWidth = 1;
+  /* Grid — 1-pixel fillRect outline (no AA). */
+  ctx.fillStyle = color('block-grid-light');
   for (let bx = minX; bx <= maxX; bx++) {
     for (let by = minY; by <= maxY; by++) {
       const bp = bpos(bx, by);
-      ctx.strokeRect(bp.x, bp.y, CELL, CELL);
+      const xi = Math.round(bp.x), yi = Math.round(bp.y);
+      ctx.fillRect(xi, yi, CELL, 1);
+      ctx.fillRect(xi, yi + CELL - 1, CELL, 1);
+      ctx.fillRect(xi, yi, 1, CELL);
+      ctx.fillRect(xi + CELL - 1, yi, 1, CELL);
     }
   }
 
@@ -863,11 +1001,12 @@ document.getElementById('draw-btn').addEventListener('click', draw);
 document.getElementById('chk-normal').addEventListener('change', toggleVisibility);
 document.getElementById('chk-simple').addEventListener('change', toggleVisibility);
 document.getElementById('chk-directed').addEventListener('change', draw);
+document.getElementById('chk-step').addEventListener('change', draw);
 
 /* ---- localStorage persistence ---- */
 const STORAGE_KEY = 'repeated-maze-state';
 const TEXTAREA_IDS = ['maze-input', 'answer-input'];
-const CHECKBOX_IDS = ['chk-normal', 'chk-simple', 'chk-directed', 'chk-darkmode'];
+const CHECKBOX_IDS = ['chk-normal', 'chk-simple', 'chk-directed', 'chk-step', 'chk-darkmode'];
 
 function applyDarkmode() {
   /* Toggle on <html> so the inline head script and this runtime toggle

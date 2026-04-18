@@ -122,10 +122,12 @@
     const used = { W: [], E: [], N: [], S: [] };
     for (let i = 0; i < nterm; i++) { used.W.push(0); used.E.push(0); used.N.push(0); used.S.push(0); }
     const P = [];
+    const portSubKeys = [];  /* [{srcKey, dstKey}, ...] for later per-port termPos lookup */
     for (const p of ports) {
       const sKey = p.src.dir + p.src.idx + '-' + (used[p.src.dir][p.src.idx]++);
       const eKey = p.dst.dir + p.dst.idx + '-' + (used[p.dst.dir][p.dst.idx]++);
       P.push({ s: tinIdxByKey[sKey], e: tinIdxByKey[eKey] });
+      portSubKeys.push({ srcKey: sKey, dstKey: eKey });
     }
 
     if (Tin.length === 0) return emptyResult(nterm, cellSize);
@@ -286,6 +288,32 @@
       termPos['S' + t] = { x: xCanvas, y: cellSize };
     }
 
+    /* ---- 10b. Subterminal-specific positions (block-local pixel) for
+     * each sub-key like "W0-1", "E2-0" etc. Used by drawNormal to draw
+     * the answer-path line at the exact terminal position each port
+     * actually uses, instead of always anchoring to the first subterm. */
+    function subtermPos(key) {
+      const i = tinIdxByKey[key];
+      if (i == null) return null;
+      const t = T[i];
+      const m_ = /^([WENS])(\d+)-(\d+)$/.exec(key);
+      const dir = m_[1];
+      if (dir === 'W') return { x: 0, y: (t.y + 0.5) * cellH };
+      if (dir === 'E') return { x: cellSize, y: (t.y + 0.5) * cellH };
+      if (dir === 'N') return { x: (t.x + 0.5) * cellW, y: 0 };
+      return { x: (t.x + 0.5) * cellW, y: cellSize };
+    }
+    for (const key in tinIdxByKey) {
+      const p = subtermPos(key);
+      if (p) termPos[key] = p;
+    }
+    const portInfo = portSubKeys.map(({ srcKey, dstKey }, idx) => ({
+      srcDir: ports[idx].src.dir, srcIdx: ports[idx].src.idx,
+      dstDir: ports[idx].dst.dir, dstIdx: ports[idx].dst.idx,
+      src: subtermPos(srcKey),
+      dst: subtermPos(dstKey),
+    }));
+
     /* ---- 11. Junctions ---- */
     const junctions = [];
     for (let i = 0; i < Tin.length; i++) {
@@ -303,7 +331,7 @@
 
     return {
       routes: [], spines: [], junctions, termPos, overlaps: [],
-      subgrid, nR, nC,
+      subgrid, nR, nC, portInfo,
     };
   }
 
