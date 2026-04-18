@@ -14,10 +14,15 @@ const path = require('path');
 const projectRoot = path.resolve(__dirname, '..');
 const htmlPath = path.join(projectRoot, 'index.html');
 const html = fs.readFileSync(htmlPath, 'utf8');
-/* Find the inline <script> (no attributes) — skip <script src=...> tags. */
-const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);
-if (!scriptMatch) { console.error('ERROR: no inline <script>'); process.exit(1); }
-const jsCode = scriptMatch[1];
+/* Collect every inline <script>…</script> body (no attributes) and
+ * concatenate them — the page has a small head-level darkmode bootstrap
+ * before the main script that defines routeBlockPorts. */
+const scriptBodies = [];
+const scriptRe = /<script>([\s\S]*?)<\/script>/g;
+let scriptM;
+while ((scriptM = scriptRe.exec(html)) !== null) scriptBodies.push(scriptM[1]);
+if (!scriptBodies.length) { console.error('ERROR: no inline <script>'); process.exit(1); }
+const jsCode = scriptBodies.join('\n');
 const drawIdx = jsCode.indexOf('function draw()');
 
 /* The inline script now calls buildBlockSubgrid (from lee/index_adapter.js).

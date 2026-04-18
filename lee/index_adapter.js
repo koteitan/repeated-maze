@@ -55,8 +55,12 @@
       Hcore += Math.max(nsub.W[t], nsub.E[t]);
       Wcore += Math.max(nsub.N[t], nsub.S[t]);
     }
-    let H = Hcore + 2;
-    let W = Wcore + 2;
+    /* Reserve at least one interior row/column: when Wcore=0 or Hcore=0 the
+     * literal +2 would place W/E (or N/S) terminals in directly adjacent
+     * cells, and insert_map's bridge detection would then auto-connect
+     * them even when they belong to different ports. */
+    let H = Math.max(Hcore + 2, 3);
+    let W = Math.max(Wcore + 2, 3);
 
     /* ---- 3. Subterminal placement (canvas convention) ----
      * W/E: y ∈ [1, H-2] (top=1 to bottom=H-2, avoiding corners).
@@ -126,9 +130,16 @@
 
     if (Tin.length === 0) return emptyResult(nterm, cellSize);
 
-    /* ---- 6. Run Lee ---- */
+    /* ---- 6. Run Lee ----
+     * Pre-build the initial W×H grid (with 'T' at each subterminal) and
+     * hand it to lee_algorithm via opts so that Lee's init_map does not
+     * discard our margin rows/columns by recomputing the grid tight to
+     * Tin coordinates. */
     const TinCopy = Tin.map(t => ({ x: t.x, y: t.y, dx: t.dx, dy: t.dy }));
-    const leeRes = LEE.lee_algorithm(TinCopy, P);
+    const m0 = new Array(W);
+    for (let x = 0; x < W; x++) m0[x] = new Array(H).fill(' ');
+    for (let i = 0; i < Tin.length; i++) m0[Tin[i].x][Tin[i].y] = 'T';
+    const leeRes = LEE.lee_algorithm(TinCopy, P, { W, H, m: m0 });
     if (leeRes.error) {
       console.warn('lee_algorithm error:', leeRes.error, 'failedPort:', leeRes.failedPort);
     }

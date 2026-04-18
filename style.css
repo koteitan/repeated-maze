@@ -38,6 +38,7 @@
   --simple-end: #ff0000;
 }
 
+:root.darkmode,
 body.darkmode {
   --bg-page: #0a0a0a;
   --text: #ffffff;
@@ -88,7 +89,7 @@ textarea {
   background: var(--canvas-bg);
   color: var(--text);
 }
-#maze-input { width: 640px; height: 50px; }
+#maze-input { width: 640px; height: 100px; }
 #answer-input { width: 640px; height: 50px; }
 button {
   padding: 7px 22px;

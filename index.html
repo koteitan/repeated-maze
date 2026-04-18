@@ -3,11 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <title>Repeated Maze Visualizer</title>
+<script>
+/* Apply the darkmode class to <html> before stylesheets render, so the
+ * saved-off darkmode users never see a white flash on page load. */
+try {
+  const _saved = localStorage.getItem('repeated-maze-state');
+  if (_saved) {
+    const _st = JSON.parse(_saved);
+    if (_st && _st.checkboxes && _st.checkboxes['chk-darkmode']) {
+      document.documentElement.classList.add('darkmode');
+    }
+  }
+} catch (e) {}
+</script>
 <link rel="stylesheet" href="style.css">
-<style>canvas { display: block; width: 100%; height: auto; }</style>
+<style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.7</span><!-- darkmode + localStorage --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.8</span><!-- crisper rendering, outer start/goal arrows, darkmode no-flash --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -254,9 +267,21 @@ function setupCanvas(canvasId, wrapId, bounds) {
   const MARGIN = BASE_MARGIN * scale;
   const S = scale;
 
-  canvas.width = MARGIN * 2 + cols * CELL;
-  canvas.height = MARGIN * 2 + rows * CELL;
+  /* Size the backing buffer in physical pixels (DPR-aware) so that a
+   * 1-CSS-pixel stroke maps to a whole number of device pixels and does
+   * not get smoothed by the browser. `width: 100%` in CSS still stretches
+   * the display; aspect ratio is preserved via `height: auto`. */
+  const cssW = MARGIN * 2 + cols * CELL;
+  const cssH = MARGIN * 2 + rows * CELL;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
   const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  /* Half-pixel offset so 1-wide strokes land on the pixel centre rather
+   * than straddling two pixels with 50% alpha each. */
+  ctx.translate(0.5, 0.5);
+  ctx.imageSmoothingEnabled = false;
 
   function bpos(bx, by) {
     return { x: MARGIN + (bx - minX) * CELL, y: MARGIN + (maxY - by) * CELL };
@@ -271,7 +296,7 @@ function setupCanvas(canvasId, wrapId, bounds) {
     for (let by = minY; by <= maxY; by++) {
       const bp = bpos(bx, by);
       ctx.strokeStyle = color('block-grid');
-      ctx.lineWidth = 2 * S;
+      ctx.lineWidth = 1;
       ctx.strokeRect(bp.x, bp.y, CELL, CELL);
     }
   }
@@ -350,14 +375,14 @@ function drawNormal(maze, path, nterm, bounds, directed) {
         case 'S': cpy = my - off; break;
       }
       if (directed)
-        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 2 * S);
+        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 1);
       else
-        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 2 * S);
+        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 1);
     } else {
       if (directed)
-        drawArrow(ctx, fx, fy, tx, ty, color('stroke'), 2 * S);
+        drawArrow(ctx, fx, fy, tx, ty, color('stroke'), 1);
       else
-        drawLine(ctx, fx, fy, tx, ty, color('stroke'), 2 * S);
+        drawLine(ctx, fx, fy, tx, ty, color('stroke'), 1);
     }
   }
 
@@ -366,7 +391,7 @@ function drawNormal(maze, path, nterm, bounds, directed) {
     if (pts.length < 2) return;
     ctx.save();
     ctx.strokeStyle = color('stroke');
-    ctx.lineWidth = 2 * S;
+    ctx.lineWidth = 1;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
     ctx.beginPath();
@@ -389,7 +414,7 @@ function drawNormal(maze, path, nterm, bounds, directed) {
         /* Draw each sub-block cell */
         ctx.save();
         ctx.strokeStyle = color('stroke');
-        ctx.lineWidth = 2 * S;
+        ctx.lineWidth = 1;
         ctx.lineCap = 'round';
         for (let r = 0; r < sgR; r++) {
           for (let c = 0; c < sgC; c++) {
@@ -458,9 +483,9 @@ function drawNormal(maze, path, nterm, bounds, directed) {
       const mx = (fx + tx) / 2, my = (fy + ty) / 2;
       const cpx = mx - 30 * S, cpy = my;
       if (directed)
-        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 2 * S);
+        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 1);
       else
-        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 2 * S);
+        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 1);
     }
   }
 
@@ -490,31 +515,56 @@ function drawNormal(maze, path, nterm, bounds, directed) {
       const mx = (fx + tx) / 2, my = (fy + ty) / 2;
       const cpx = mx, cpy = my + 30 * S;
       if (directed)
-        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 2 * S);
+        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 1);
       else
-        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 2 * S);
+        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 1);
     }
   }
 
-  /* Start and Goal markers */
+  /* Start and Goal markers placed outside the block so they do not
+   * overlap the terminal on the normal-port side:
+   *   Goal  ←|
+   *   Start →|
+   * Each is an arrow touching the block edge at the terminal, with the
+   * label just further outside. Start arrow points into the maze; Goal
+   * arrow points out of it. */
   const startState = { x: 0, y: 1, dir: 'E', idx: 0 };
   const goalState  = { x: 0, y: 1, dir: 'E', idx: 1 };
   const startPos = statePos(startState);
   const goalPos  = statePos(goalState);
-  for (const {pos, label, fill} of [
-    {pos: startPos, label: 'Start', fill: color('start')},
-    {pos: goalPos,  label: 'Goal',  fill: color('goal')}
-  ]) {
+  const arrowLen = 36 * S;
+  const labelGap = 6 * S;
+  const headLen = 9 * S;
+  function arrowShape(fx, fy, tx, ty, col) {
+    const ang = Math.atan2(ty - fy, tx - fx);
+    const spread = Math.PI / 6;  /* 30° either side of the shaft */
+    ctx.save();
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     ctx.beginPath();
-    ctx.arc(pos.x, pos.y, 12 * S, 0, 2 * Math.PI);
-    ctx.fillStyle = fill;
-    ctx.fill();
-    ctx.fillStyle = fill;
-    ctx.font = `bold ${20 * S}px sans-serif`;
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, pos.x - 18 * S, pos.y);
+    ctx.moveTo(fx, fy);
+    ctx.lineTo(tx, ty);
+    ctx.moveTo(tx - headLen * Math.cos(ang - spread), ty - headLen * Math.sin(ang - spread));
+    ctx.lineTo(tx, ty);
+    ctx.lineTo(tx - headLen * Math.cos(ang + spread), ty - headLen * Math.sin(ang + spread));
+    ctx.stroke();
+    ctx.restore();
   }
+  ctx.save();
+  ctx.font = `bold ${16 * S}px sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  /* Start: tail outside, arrowhead at the block edge (points right). */
+  arrowShape(startPos.x - arrowLen, startPos.y, startPos.x, startPos.y, color('start'));
+  ctx.fillStyle = color('start');
+  ctx.fillText('Start', startPos.x - arrowLen - labelGap, startPos.y);
+  /* Goal: tail at the block edge, arrowhead outside (points left). */
+  arrowShape(goalPos.x, goalPos.y, goalPos.x - arrowLen, goalPos.y, color('goal'));
+  ctx.fillStyle = color('goal');
+  ctx.fillText('Goal', goalPos.x - arrowLen - labelGap, goalPos.y);
+  ctx.restore();
 
   /* Path line — use L-bends instead of diagonal lines */
   if (path.length > 1) {
@@ -820,7 +870,9 @@ const TEXTAREA_IDS = ['maze-input', 'answer-input'];
 const CHECKBOX_IDS = ['chk-normal', 'chk-simple', 'chk-directed', 'chk-darkmode'];
 
 function applyDarkmode() {
-  document.body.classList.toggle(
+  /* Toggle on <html> so the inline head script and this runtime toggle
+   * target the same node. body inherits the CSS variables via cascade. */
+  document.documentElement.classList.toggle(
     'darkmode',
     document.getElementById('chk-darkmode').checked
   );
@@ -878,8 +930,16 @@ document.getElementById('chk-darkmode').addEventListener('change', () => {
   draw();
 });
 
-window.addEventListener('load', draw);
-window.addEventListener('resize', onResize);
+/* Observe the canvas container so the first draw happens once layout has
+ * assigned the parent a non-zero width (avoids blank initial render when
+ * wrap.parentElement.clientWidth is still 0 at the load event). */
+if (typeof ResizeObserver !== 'undefined') {
+  const ro = new ResizeObserver(() => draw());
+  ro.observe(document.getElementById('canvas-wrap').parentElement);
+} else {
+  window.addEventListener('load', () => requestAnimationFrame(draw));
+  window.addEventListener('resize', onResize);
+}
 </script>
 </body>
 </html>
