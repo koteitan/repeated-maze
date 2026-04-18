@@ -3,26 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <title>Repeated Maze Visualizer</title>
-<style>
-body { font-family: sans-serif; margin: 20px; background: #f5f5f5; }
-h1 { font-size: 20px; margin: 0 0 12px; }
-.fields { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
-.field { display: flex; flex-direction: column; }
-.field label { font-weight: bold; margin-bottom: 3px; font-size: 14px; }
-textarea { font-family: monospace; font-size: 13px; padding: 6px; border: 1px solid #aaa; border-radius: 3px; }
-#maze-input { width: 640px; height: 50px; }
-#answer-input { width: 640px; height: 50px; }
-button { padding: 7px 22px; font-size: 14px; cursor: pointer; background: #3498db; color: #fff; border: none; border-radius: 4px; }
-button:hover { background: #2980b9; }
-.legend { margin-top: 8px; font-size: 12px; color: #555; }
-.legend span { margin-right: 14px; }
-.legend .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: middle; margin-right: 3px; }
-.canvas-wrap { border: 1px solid #ccc; background: #fff; margin-top: 10px; max-width: 100%; }
-canvas { display: block; width: 100%; height: auto; }
-</style>
+<link rel="stylesheet" href="style.css">
+<style>canvas { display: block; width: 100%; height: auto; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:#999">v2.6</span><!-- branch subport: outward only at s=0 --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.7</span><!-- darkmode + localStorage --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -37,20 +22,21 @@ canvas { display: block; width: 100%; height: auto; }
   <label><input type="checkbox" id="chk-normal" checked> normal</label>
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-simple"> x,y only</label>
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-directed"> directed</label>
+  <label style="margin-left: 12px;"><input type="checkbox" id="chk-darkmode"> darkmode</label>
 </div>
 <button id="draw-btn">Draw Maze</button>
 <div id="normal-section">
   <div class="legend">
-    <span><span class="swatch" style="background:#e63946"></span>Path</span>
-    <span><span class="swatch" style="background:#27ae60"></span>Start</span>
-    <span><span class="swatch" style="background:#c0392b"></span>Goal</span>
+    <span><span class="swatch sw-path"></span>Path</span>
+    <span><span class="swatch sw-start"></span>Start</span>
+    <span><span class="swatch sw-goal"></span>Goal</span>
   </div>
   <div id="canvas-wrap" class="canvas-wrap"><canvas id="canvas"></canvas></div>
 </div>
 <div id="simple-section" style="display:none;">
   <div class="legend">
-    <span><span class="swatch" style="background:#0000ff"></span>Start</span>
-    <span><span class="swatch" style="background:#ff0000"></span>End</span>
+    <span><span class="swatch sw-simple-start"></span>Start</span>
+    <span><span class="swatch sw-simple-end"></span>End</span>
     <span>Color: Blue → Red</span>
   </div>
   <div id="canvas-wrap-simple" class="canvas-wrap"><canvas id="canvas-simple"></canvas></div>
@@ -65,6 +51,13 @@ canvas { display: block; width: 100%; height: auto; }
 /* Base sizes (at scale=1, these correspond to the "2x" design) */
 const BASE_CELL = 240;
 const BASE_MARGIN = 100;
+
+/* Read a CSS custom property (e.g. color('stroke') -> value of --stroke).
+ * Reads from <body> so that body.darkmode overrides propagate. */
+function color(name) {
+  return getComputedStyle(document.body)
+    .getPropertyValue('--' + name).trim();
+}
 
 /* ---- Parsing ---- */
 
@@ -270,21 +263,21 @@ function setupCanvas(canvasId, wrapId, bounds) {
   }
 
   /* Clear */
-  ctx.fillStyle = '#fff';
+  ctx.fillStyle = color('canvas-bg');
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   /* Grid cells */
   for (let bx = minX; bx <= maxX; bx++) {
     for (let by = minY; by <= maxY; by++) {
       const bp = bpos(bx, by);
-      ctx.strokeStyle = '#bbb';
+      ctx.strokeStyle = color('block-grid');
       ctx.lineWidth = 2 * S;
       ctx.strokeRect(bp.x, bp.y, CELL, CELL);
     }
   }
 
   /* Axis labels */
-  ctx.fillStyle = '#888';
+  ctx.fillStyle = color('axis-label');
   ctx.font = `${22 * S}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
@@ -357,14 +350,14 @@ function drawNormal(maze, path, nterm, bounds, directed) {
         case 'S': cpy = my - off; break;
       }
       if (directed)
-        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
+        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 2 * S);
       else
-        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
+        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 2 * S);
     } else {
       if (directed)
-        drawArrow(ctx, fx, fy, tx, ty, '#000', 2 * S);
+        drawArrow(ctx, fx, fy, tx, ty, color('stroke'), 2 * S);
       else
-        drawLine(ctx, fx, fy, tx, ty, '#000', 2 * S);
+        drawLine(ctx, fx, fy, tx, ty, color('stroke'), 2 * S);
     }
   }
 
@@ -372,7 +365,7 @@ function drawNormal(maze, path, nterm, bounds, directed) {
   function drawPolyline(pts, ox, oy) {
     if (pts.length < 2) return;
     ctx.save();
-    ctx.strokeStyle = '#000';
+    ctx.strokeStyle = color('stroke');
     ctx.lineWidth = 2 * S;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
@@ -395,7 +388,7 @@ function drawNormal(maze, path, nterm, bounds, directed) {
         const bp = bpos(bx, by);
         /* Draw each sub-block cell */
         ctx.save();
-        ctx.strokeStyle = '#000';
+        ctx.strokeStyle = color('stroke');
         ctx.lineWidth = 2 * S;
         ctx.lineCap = 'round';
         for (let r = 0; r < sgR; r++) {
@@ -419,7 +412,7 @@ function drawNormal(maze, path, nterm, bounds, directed) {
         for (const j of junctions) {
           ctx.beginPath();
           ctx.arc(bp.x + j.x, bp.y + j.y, 4 * S, 0, 2 * Math.PI);
-          ctx.fillStyle = '#000';
+          ctx.fillStyle = color('stroke');
           ctx.fill();
         }
       }
@@ -465,9 +458,9 @@ function drawNormal(maze, path, nterm, bounds, directed) {
       const mx = (fx + tx) / 2, my = (fy + ty) / 2;
       const cpx = mx - 30 * S, cpy = my;
       if (directed)
-        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
+        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 2 * S);
       else
-        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
+        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 2 * S);
     }
   }
 
@@ -497,9 +490,9 @@ function drawNormal(maze, path, nterm, bounds, directed) {
       const mx = (fx + tx) / 2, my = (fy + ty) / 2;
       const cpx = mx, cpy = my + 30 * S;
       if (directed)
-        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
+        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 2 * S);
       else
-        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, '#000', 2 * S);
+        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 2 * S);
     }
   }
 
@@ -508,15 +501,15 @@ function drawNormal(maze, path, nterm, bounds, directed) {
   const goalState  = { x: 0, y: 1, dir: 'E', idx: 1 };
   const startPos = statePos(startState);
   const goalPos  = statePos(goalState);
-  for (const {pos, label, color} of [
-    {pos: startPos, label: 'Start', color: '#27ae60'},
-    {pos: goalPos,  label: 'Goal',  color: '#c0392b'}
+  for (const {pos, label, fill} of [
+    {pos: startPos, label: 'Start', fill: color('start')},
+    {pos: goalPos,  label: 'Goal',  fill: color('goal')}
   ]) {
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, 12 * S, 0, 2 * Math.PI);
-    ctx.fillStyle = color;
+    ctx.fillStyle = fill;
     ctx.fill();
-    ctx.fillStyle = color;
+    ctx.fillStyle = fill;
     ctx.font = `bold ${20 * S}px sans-serif`;
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
@@ -526,7 +519,7 @@ function drawNormal(maze, path, nterm, bounds, directed) {
   /* Path line — use L-bends instead of diagonal lines */
   if (path.length > 1) {
     ctx.save();
-    ctx.strokeStyle = '#e63946';
+    ctx.strokeStyle = color('path');
     ctx.lineWidth = 6 * S;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
@@ -561,12 +554,12 @@ function drawNormal(maze, path, nterm, bounds, directed) {
       const r = ((i >= 100) ? 26 : 20) * S;
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, 0, 2 * Math.PI);
-      ctx.fillStyle = (i === 0) ? '#27ae60' : (i === path.length - 1) ? '#c0392b' : '#2980b9';
+      ctx.fillStyle = (i === 0) ? color('start') : (i === path.length - 1) ? color('goal') : color('marker-current');
       ctx.fill();
-      ctx.strokeStyle = '#fff';
+      ctx.strokeStyle = color('canvas-bg');
       ctx.lineWidth = 3 * S;
       ctx.stroke();
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = color('marker-text');
       ctx.font = `bold ${(r > 20 * S ? 18 : 20) * S}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -705,11 +698,11 @@ function drawSimple(path, bounds) {
   }
 
   /* Clear */
-  ctx.fillStyle = '#fff';
+  ctx.fillStyle = color('canvas-bg');
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   /* Grid */
-  ctx.strokeStyle = '#ddd';
+  ctx.strokeStyle = color('block-grid-light');
   ctx.lineWidth = 1;
   for (let bx = minX; bx <= maxX; bx++) {
     for (let by = minY; by <= maxY; by++) {
@@ -719,7 +712,7 @@ function drawSimple(path, bounds) {
   }
 
   /* Axis labels */
-  ctx.fillStyle = '#999';
+  ctx.fillStyle = color('axis-num');
   ctx.font = '9px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
@@ -755,12 +748,12 @@ function drawSimple(path, bounds) {
     const sp = bpos(path[0].x, path[0].y);
     ctx.beginPath();
     ctx.arc(sp.x + CELL / 2, sp.y + CELL / 2, 3, 0, 2 * Math.PI);
-    ctx.fillStyle = '#0000ff';
+    ctx.fillStyle = color('simple-start');
     ctx.fill();
     const ep = bpos(path[path.length - 1].x, path[path.length - 1].y);
     ctx.beginPath();
     ctx.arc(ep.x + CELL / 2, ep.y + CELL / 2, 3, 0, 2 * Math.PI);
-    ctx.fillStyle = '#ff0000';
+    ctx.fillStyle = color('simple-end');
     ctx.fill();
   }
 }
@@ -820,6 +813,71 @@ document.getElementById('draw-btn').addEventListener('click', draw);
 document.getElementById('chk-normal').addEventListener('change', toggleVisibility);
 document.getElementById('chk-simple').addEventListener('change', toggleVisibility);
 document.getElementById('chk-directed').addEventListener('change', draw);
+
+/* ---- localStorage persistence ---- */
+const STORAGE_KEY = 'repeated-maze-state';
+const TEXTAREA_IDS = ['maze-input', 'answer-input'];
+const CHECKBOX_IDS = ['chk-normal', 'chk-simple', 'chk-directed', 'chk-darkmode'];
+
+function applyDarkmode() {
+  document.body.classList.toggle(
+    'darkmode',
+    document.getElementById('chk-darkmode').checked
+  );
+}
+
+function loadState() {
+  let raw;
+  try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) { return; }
+  if (!raw) return;
+  let state;
+  try { state = JSON.parse(raw); } catch (e) { return; }
+  if (state.textareas) {
+    for (const id of TEXTAREA_IDS) {
+      if (typeof state.textareas[id] === 'string') {
+        document.getElementById(id).value = state.textareas[id];
+      }
+    }
+  }
+  if (state.checkboxes) {
+    for (const id of CHECKBOX_IDS) {
+      if (typeof state.checkboxes[id] === 'boolean') {
+        document.getElementById(id).checked = state.checkboxes[id];
+      }
+    }
+  }
+}
+
+function saveState() {
+  const state = { textareas: {}, checkboxes: {} };
+  for (const id of TEXTAREA_IDS) state.textareas[id] = document.getElementById(id).value;
+  for (const id of CHECKBOX_IDS) state.checkboxes[id] = document.getElementById(id).checked;
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+}
+
+/* Clear storage when the page is loaded with ?reset. */
+if (/(^|[?&])reset(=|&|$)/.test(window.location.search)) {
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+} else {
+  loadState();
+}
+
+/* Apply restored state to the UI. */
+applyDarkmode();
+toggleVisibility();
+
+/* Save on blur for textareas, on change for checkboxes. */
+for (const id of TEXTAREA_IDS) {
+  document.getElementById(id).addEventListener('blur', saveState);
+}
+for (const id of CHECKBOX_IDS) {
+  document.getElementById(id).addEventListener('change', saveState);
+}
+document.getElementById('chk-darkmode').addEventListener('change', () => {
+  applyDarkmode();
+  draw();
+});
+
 window.addEventListener('load', draw);
 window.addEventListener('resize', onResize);
 </script>
