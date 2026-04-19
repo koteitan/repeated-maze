@@ -20,7 +20,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.9</span><!-- branch subport bridge B-line + debug tagging --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.10</span><!-- branch polyline merged with stub segments --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -68,7 +68,7 @@ const BASE_MARGIN = 100;
 
 /* Internal debug switches (no UI). Flip to false at release. */
 const DEBUG_SHOW_SUBBLOCK_GRID = true;
-const DEBUG_LOG_ANSWER_PATH = true;
+const DEBUG_LOG_ANSWER_PATH = false;
 
 /* Read a CSS custom property (e.g. color('stroke') -> value of --stroke).
  * Reads from <body> so that body.darkmode overrides propagate. */
@@ -812,6 +812,7 @@ function drawNormal(maze, path, nterm, bounds, diagonal) {
       const tagOf = l =>
         l === 't'  ? 'branch subport(t )' :
         l === 'sp' ? 'branch subport(sp)' :
+        l === 'st' ? 'branch subport(st)' :
                      'polyline';
       if (crisp) {
         const drawSeg = (a, b) => {
@@ -841,36 +842,8 @@ function drawNormal(maze, path, nterm, bounds, diagonal) {
           for (let w = 1; w < wp.length; w++) logLine(wp[w - 1], wp[w], tagOf(wl[w - 1]), wg[w - 1], ends && ends.B);
         }
       }
-      /* Branch subport "Line B" stubs: a half-subblock-long line from the
-       * sub-terminal edge to the sub-cell centre for each non-first
-       * subterminal endpoint. Drawn as a separate axis-aligned red
-       * segment in block-local coords (matches diagonal.md answer-path
-       * rule 2). Only shown in orthogonal mode. */
-      if (!diagonal && ends && ends.branchStubs && ends.branchStubs.length) {
-        const bp = bpos(ends.B.x, ends.B.y);
-        const stubsGrid = ends.branchStubsGrid || [];
-        for (let si = 0; si < ends.branchStubs.length; si++) {
-          const stub = ends.branchStubs[si];
-          const ax = bp.x + stub.a.x, ay = bp.y + stub.a.y;
-          const bx = bp.x + stub.b.x, by = bp.y + stub.b.y;
-          if (crisp) {
-            ctx.fillStyle = color('path');
-            if (Math.abs(ay - by) < 0.5) hlineBetween(ax, ay, bx);
-            else if (Math.abs(ax - bx) < 0.5) vlineBetween(ax, ay, by);
-          } else {
-            ctx.save();
-            ctx.strokeStyle = color('path');
-            ctx.lineWidth = 1;
-            ctx.lineCap = 'butt';
-            ctx.beginPath();
-            ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
-            ctx.stroke();
-            ctx.restore();
-          }
-          const sg = stubsGrid[si] && stubsGrid[si].a;
-          logLine({ x: ax, y: ay }, { x: bx, y: by }, 'branch subport(st)', sg, ends.B);
-        }
-      }
+      /* (Line B stubs are now the last/first segment of the branch
+       * polylines in 9-1c — no separate stub-drawing pass here.) */
       /* When the maze declares any directed port, stamp an arrowhead at
        * each path segment endpoint, aligned with the final waypoint
        * approach direction. */

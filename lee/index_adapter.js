@@ -412,22 +412,24 @@
 
         if (srcBranch) {
           const d = HALF[srcDir];
-          answerSegments.push([
-            { x: srcTerm.x, y: srcTerm.y },                       /* A start */
-            { x: srcTerm.x + d[0], y: srcTerm.y + d[1] },         /* A end = C start (mt) */
-            cellPath[1],                                          /* C end = st (sub-cell centre) */
-          ]);
-          answerSegmentsGrid.push([srcCell, srcCell, srcCell]);
-          answerSegmentsLabels.push(['t', 'sp']);                  /* seg0 = Line A, seg1 = Line C */
-          answerSegmentsKind.push('src-branch');
-          /* Line B: subterm 内側端 (st = cellPath[1], Lee terminal 出発点)
-           * から次 subblock の cell center (cellPath[2]) までを bridge。
-           * 外周点 cellPath[0] は使わない。 */
+          const poly = [
+            { x: srcTerm.x, y: srcTerm.y },                       /* A start (terminal rep edge) */
+            { x: srcTerm.x + d[0], y: srcTerm.y + d[1] },         /* mt */
+            cellPath[1],                                          /* st (sub-cell centre) */
+          ];
+          const polyGrid = [srcCell, srcCell, srcCell];
+          const polyLabels = ['t', 'sp'];
+          /* Line B bridge: extend the polyline to cellPath[2] so (t)(sp)(st)
+           * are drawn as one continuous polyline via drawSeg. */
           if (cellPath.length >= 3) {
-            branchStubs.push({ a: cellPath[1], b: cellPath[2] });
-            branchStubsGrid.push({ a: srcCell, b: cellsGrid[2] });
-            branchStubsKind.push('src-branch');
+            poly.push(cellPath[2]);
+            polyGrid.push(cellsGrid[2]);
+            polyLabels.push('st');
           }
+          answerSegments.push(poly);
+          answerSegmentsGrid.push(polyGrid);
+          answerSegmentsLabels.push(polyLabels);
+          answerSegmentsKind.push('src-branch');
         }
         /* Main Lee cell-path, trimmed of endpoints taken by the branch
          * detours above so the red trail doesn't re-enter the sub-cell. */
@@ -442,22 +444,28 @@
         }
         if (dstBranch) {
           const d = HALF[dstDir];
-          answerSegments.push([
-            cellPath[cellPath.length - 2],                       /* st (sub-cell centre) */
-            { x: dstTerm.x + d[0], y: dstTerm.y + d[1] },        /* mt */
-            { x: dstTerm.x, y: dstTerm.y },                      /* terminal edge */
-          ]);
-          answerSegmentsGrid.push([dstCell, dstCell, dstCell]);
-          answerSegmentsLabels.push(['sp', 't']);                  /* seg0 = Line C, seg1 = Line A */
-          answerSegmentsKind.push('dst-branch');
-          /* Line B: dst 側は「前 subblock cell center → dst subterm cell
-           * center (st = cellPath[last-1])」を bridge。 */
+          const last = cellPath.length - 1;
+          const poly = [];
+          const polyGrid = [];
+          const polyLabels = [];
+          /* Line B bridge: include (prevCell → st) so the dst-branch
+           * polyline has (st)(sp)(t) contiguously as drawSeg segments. */
           if (cellPath.length >= 3) {
-            const last = cellPath.length - 1;
-            branchStubs.push({ a: cellPath[last - 2], b: cellPath[last - 1] });
-            branchStubsGrid.push({ a: cellsGrid[last - 2], b: dstCell });
-            branchStubsKind.push('dst-branch');
+            poly.push(cellPath[last - 2]);
+            polyGrid.push(cellsGrid[last - 2]);
+            polyLabels.push('st');
           }
+          poly.push(cellPath[last - 1]);                          /* st (sub-cell centre) */
+          poly.push({ x: dstTerm.x + d[0], y: dstTerm.y + d[1] });/* mt */
+          poly.push({ x: dstTerm.x, y: dstTerm.y });              /* terminal rep edge */
+          polyGrid.push(dstCell);
+          polyGrid.push(dstCell);
+          polyGrid.push(dstCell);
+          polyLabels.push('sp', 't');
+          answerSegments.push(poly);
+          answerSegmentsGrid.push(polyGrid);
+          answerSegmentsLabels.push(polyLabels);
+          answerSegmentsKind.push('dst-branch');
         }
       }
       return {
