@@ -26,7 +26,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.11</span><!-- save image / answer path toggle / query params / copy link / canvas pan-zoom --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.12</span><!-- compressed mazez/answerz URL params --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -1198,13 +1198,61 @@ const QUERY_CB_MAP = {
   diagonal: 'chk-diagonal',
   xyonly: 'chk-simple',
 };
-document.getElementById('copy-url-btn').addEventListener('click', () => {
+
+/* Compress/decompress text for shorter shareable URLs (mazez/answerz
+ * params). Uses the native CompressionStream (deflate-raw) and base64url
+ * without padding. Returns null when the API is unavailable, in which
+ * case callers fall back to plain 'maze'/'answer' params. */
+async function compressTextForUrl(str) {
+  if (typeof CompressionStream === 'undefined') return null;
+  try {
+    const cs = new CompressionStream('deflate-raw');
+    const writer = cs.writable.getWriter();
+    writer.write(new TextEncoder().encode(str));
+    writer.close();
+    const buf = await new Response(cs.readable).arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  } catch (e) { return null; }
+}
+
+async function decompressTextFromUrl(b64) {
+  if (typeof DecompressionStream === 'undefined') return null;
+  try {
+    let s = b64.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    const bin = atob(s);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const ds = new DecompressionStream('deflate-raw');
+    const writer = ds.writable.getWriter();
+    writer.write(bytes);
+    writer.close();
+    const buf = await new Response(ds.readable).arrayBuffer();
+    return new TextDecoder().decode(buf);
+  } catch (e) { return null; }
+}
+document.getElementById('copy-url-btn').addEventListener('click', async () => {
   const url = new URL(window.location.href);
   url.search = '';
   const maze = document.getElementById('maze-input').value;
   const answer = document.getElementById('answer-input').value;
-  url.searchParams.set('maze', maze === '' ? 'empty' : maze);
-  url.searchParams.set('answer', answer === '' ? 'empty' : answer);
+  /* Use compressed *z params when they end up noticeably shorter than the
+   * plain value (and CompressionStream is available); otherwise stay with
+   * the plain 'maze'/'answer' params the v2.11 release shipped. */
+  async function setTextParam(name, value) {
+    if (value === '') { url.searchParams.set(name, 'empty'); return; }
+    const z = await compressTextForUrl(value);
+    if (z && z.length + 8 < value.length) {
+      url.searchParams.set(name + 'z', z);
+    } else {
+      url.searchParams.set(name, value);
+    }
+  }
+  await setTextParam('maze', maze);
+  await setTextParam('answer', answer);
   for (const [key, cbId] of Object.entries(QUERY_CB_MAP)) {
     const el = document.getElementById(cbId);
     if (el.checked !== CHECKBOX_DEFAULTS[cbId]) {
@@ -1300,12 +1348,17 @@ if (/(^|[?&])reset(=|&|$)/.test(window.location.search)) {
  *   maze=<text|empty>, answer=<text|empty>,
  *   normal=0|1, darkmode=0|1, diagonal=0|1, xyonly=0|1.
  * Presence overrides; missing keys fall back to localStorage/defaults. */
-function applyQueryParams() {
+async function applyQueryParams() {
   let params;
   try { params = new URLSearchParams(window.location.search); } catch (e) { return; }
+  /* Textareas: prefer compressed *z param (new, short URLs) over the
+   * plain one (old v2.11 format stays accepted). */
   const textMap = { maze: 'maze-input', answer: 'answer-input' };
   for (const [k, id] of Object.entries(textMap)) {
-    if (params.has(k)) {
+    if (params.has(k + 'z')) {
+      const t = await decompressTextFromUrl(params.get(k + 'z'));
+      if (t != null) document.getElementById(id).value = t;
+    } else if (params.has(k)) {
       const v = params.get(k);
       document.getElementById(id).value = v === 'empty' ? '' : v;
     }
@@ -1324,11 +1377,14 @@ function applyQueryParams() {
     viewState = { cx, cy, zoom, userControlled: true };
   }
 }
-applyQueryParams();
+const queryParamsReady = applyQueryParams();
 
-/* Apply restored state to the UI. */
+/* Apply restored state to the UI. Dark mode / visibility are set now;
+ * textareas that depend on async decompression redraw after the
+ * queryParamsReady promise resolves. */
 applyDarkmode();
 toggleVisibility();
+queryParamsReady.then(() => draw());
 
 /* Save on blur for textareas, on change for checkboxes. */
 for (const id of TEXTAREA_IDS) {
