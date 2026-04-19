@@ -5,22 +5,28 @@
 <title>Repeated Maze Visualizer</title>
 <script>
 /* Apply the darkmode class to <html> before stylesheets render, so the
- * saved-off darkmode users never see a white flash on page load. */
+ * saved-off darkmode users never see a white flash on page load. URL
+ * query param (?darkmode=0|1) overrides the persisted state. */
 try {
-  const _saved = localStorage.getItem('repeated-maze-state');
-  if (_saved) {
-    const _st = JSON.parse(_saved);
-    if (_st && _st.checkboxes && _st.checkboxes['chk-darkmode']) {
-      document.documentElement.classList.add('darkmode');
+  let _dark = false;
+  const _params = new URLSearchParams(window.location.search);
+  if (_params.has('darkmode')) {
+    _dark = _params.get('darkmode') === '1';
+  } else {
+    const _saved = localStorage.getItem('repeated-maze-state');
+    if (_saved) {
+      const _st = JSON.parse(_saved);
+      if (_st && _st.checkboxes && _st.checkboxes['chk-darkmode']) _dark = true;
     }
   }
+  if (_dark) document.documentElement.classList.add('darkmode');
 } catch (e) {}
 </script>
 <link rel="stylesheet" href="style.css">
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.10</span><!-- branch polyline merged with stub segments --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.11</span><!-- save image / answer path toggle / query params / copy link / canvas pan-zoom --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -36,9 +42,12 @@ try {
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-simple"> x,y only</label>
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-diagonal"> diagonal</label>
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-step" checked> step</label>
+  <label style="margin-left: 12px;"><input type="checkbox" id="chk-answer-path" checked> answer path</label>
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-darkmode"> darkmode</label>
 </div>
 <button id="draw-btn">Draw Maze</button>
+<button id="save-img-btn" style="margin-left: 6px;">Save Image</button>
+<button id="copy-url-btn" style="margin-left: 6px;">Copy Link</button>
 <div id="normal-section">
   <div class="legend">
     <span><span class="swatch sw-path"></span>Path</span>
@@ -67,8 +76,12 @@ const BASE_CELL = 240;
 const BASE_MARGIN = 100;
 
 /* Internal debug switches (no UI). Flip to false at release. */
-const DEBUG_SHOW_SUBBLOCK_GRID = true;
+const DEBUG_SHOW_SUBBLOCK_GRID = false;
 const DEBUG_LOG_ANSWER_PATH = false;
+
+/* Canvas pan/zoom viewport. Set by mouse handlers; setupCanvas uses
+ * viewState when .userControlled is true, otherwise fits to path bounds. */
+let viewState = { cx: 0, cy: 0, zoom: 1, userControlled: false };
 
 /* Read a CSS custom property (e.g. color('stroke') -> value of --stroke).
  * Reads from <body> so that body.darkmode overrides propagate. */
@@ -265,25 +278,57 @@ function computeBounds(path) {
 /* ---- Setup canvas with grid and axis labels ---- */
 
 function setupCanvas(canvasId, wrapId, bounds) {
-  const { minX, maxX, minY, maxY } = bounds;
-  const cols = maxX - minX + 1;
-  const rows = maxY - minY + 1;
   const canvas = document.getElementById(canvasId);
   const wrap = document.getElementById(wrapId);
-  const idealW = BASE_MARGIN * 2 + cols * BASE_CELL;
   const availW = wrap.parentElement.clientWidth - 4;
-  const scale = Math.min(1, availW / idealW);
+
+  const isMain = canvasId === 'canvas';
+  let minX, maxX, minY, maxY, scale, cssW, cssH;
+  let viewCenterPx = null;          /* { x, y } pixel at viewState.cx/cy */
+
+  if (isMain && viewState.userControlled) {
+    /* User-driven pan/zoom: fixed square canvas, viewState controls where
+     * the view is centred and how zoomed. Only the blocks that intersect
+     * the visible rectangle are rendered. */
+    scale = viewState.zoom;
+    cssW = availW;
+    cssH = availW;
+    const CELL_tmp = BASE_CELL * scale;
+    const halfColBlocks = (cssW / 2) / CELL_tmp;
+    const halfRowBlocks = (cssH / 2) / CELL_tmp;
+    minX = Math.floor(viewState.cx - halfColBlocks) - 1;
+    maxX = Math.ceil(viewState.cx + halfColBlocks) + 1;
+    minY = Math.floor(viewState.cy - halfRowBlocks) - 1;
+    maxY = Math.ceil(viewState.cy + halfRowBlocks) + 1;
+    viewCenterPx = { x: cssW / 2, y: cssH / 2 };
+  } else {
+    /* Auto-fit to path bounds (the original behaviour). */
+    minX = bounds.minX; maxX = bounds.maxX;
+    minY = bounds.minY; maxY = bounds.maxY;
+    const cols = maxX - minX + 1;
+    const rows = maxY - minY + 1;
+    const idealW = BASE_MARGIN * 2 + cols * BASE_CELL;
+    scale = Math.min(1, availW / idealW);
+    cssW = BASE_MARGIN * 2 * scale + cols * BASE_CELL * scale;
+    cssH = BASE_MARGIN * 2 * scale + rows * BASE_CELL * scale;
+    if (isMain) {
+      /* Seed viewState so mouse interactions start from the auto-fit. */
+      viewState = {
+        cx: (minX + maxX) / 2,
+        cy: (minY + maxY) / 2,
+        zoom: scale,
+        userControlled: false,
+      };
+    }
+  }
+
   const CELL = BASE_CELL * scale;
   const MARGIN = BASE_MARGIN * scale;
   const S = scale;
 
-  /* Size the backing buffer in physical pixels (DPR-aware) so that a
-   * 1-CSS-pixel stroke maps to a whole number of device pixels and does
-   * not get smoothed by the browser. `width: 100%` in CSS still stretches
-   * the display; aspect ratio is preserved via `height: auto`. */
-  const cssW = MARGIN * 2 + cols * CELL;
-  const cssH = MARGIN * 2 + rows * CELL;
   const dpr = window.devicePixelRatio || 1;
+  canvas.style.width = cssW + 'px';
+  canvas.style.height = cssH + 'px';
   canvas.width = Math.round(cssW * dpr);
   canvas.height = Math.round(cssH * dpr);
   const ctx = canvas.getContext('2d');
@@ -291,6 +336,12 @@ function setupCanvas(canvasId, wrapId, bounds) {
   ctx.imageSmoothingEnabled = false;
 
   function bpos(bx, by) {
+    if (viewCenterPx) {
+      return {
+        x: viewCenterPx.x + (bx - viewState.cx) * CELL,
+        y: viewCenterPx.y - (by - viewState.cy) * CELL,
+      };
+    }
     return { x: MARGIN + (bx - minX) * CELL, y: MARGIN + (maxY - by) * CELL };
   }
 
@@ -330,30 +381,41 @@ function setupCanvas(canvasId, wrapId, bounds) {
     }
   }
 
-  /* Axis labels */
+  /* Axis labels. In viewport mode we anchor labels to the canvas edges
+   * (bottom for columns, left for rows) so they stay visible regardless
+   * of pan/zoom. */
   ctx.fillStyle = color('axis-label');
   ctx.font = `${22 * S}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
+  const labelColY = viewCenterPx ? cssH - 4 * S
+    : bpos(minX, minY).y - 4 * S + (maxY - minY + 1) * CELL + MARGIN * 0.6;
   for (let bx = minX; bx <= maxX; bx++) {
     const bp = bpos(bx, minY);
-    ctx.fillText(bx, bp.x + CELL / 2, bp.y - 4 * S + (maxY - minY + 1) * CELL + MARGIN * 0.6);
+    ctx.fillText(bx, bp.x + CELL / 2, labelColY);
   }
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
+  const labelRowX = viewCenterPx ? 22 * S : bpos(minX, maxY).x - 6 * S;
   for (let by = minY; by <= maxY; by++) {
     const bp = bpos(minX, by);
-    ctx.fillText(by, bp.x - 6 * S, bp.y + CELL / 2);
+    ctx.fillText(by, labelRowX, bp.y + CELL / 2);
   }
 
-  return { ctx, bpos, CELL, MARGIN, S, hlineBetween, vlineBetween, rectOutline };
+  return { ctx, bpos, CELL, MARGIN, S, hlineBetween, vlineBetween, rectOutline,
+           visMinX: minX, visMaxX: maxX, visMinY: minY, visMaxY: maxY };
 }
 
 /* ---- Draw normal view ---- */
 
 function drawNormal(maze, path, nterm, bounds, diagonal) {
-  const { ctx, bpos, CELL, MARGIN, S, hlineBetween, vlineBetween } = setupCanvas('canvas', 'canvas-wrap', bounds);
-  const { minX, maxX, minY, maxY } = bounds;
+  const setup = setupCanvas('canvas', 'canvas-wrap', bounds);
+  const { ctx, bpos, CELL, MARGIN, S, hlineBetween, vlineBetween } = setup;
+  /* Visible block range (respects pan/zoom viewState). All per-block
+   * iterations below use these instead of raw path bounds so off-screen
+   * blocks are skipped. */
+  const minX = setup.visMinX, maxX = setup.visMaxX;
+  const minY = setup.visMinY, maxY = setup.visMaxY;
 
   /* Arrowhead policy is driven by maze syntax:
    *   all '-'   → no arrowheads
@@ -728,8 +790,11 @@ function drawNormal(maze, path, nterm, bounds, diagonal) {
   ctx.restore();
 
   /* Path line — L-bend segments drawn at 1 pixel via fillRect (crisp)
-   * with an AA-stroke fallback when the canvas is too small. */
-  if (path.length > 1) {
+   * with an AA-stroke fallback when the canvas is too small. Skip the
+   * entire answer-path pass (line, stubs, arrowheads, step circles) when
+   * the "answer path" checkbox is off, but keep the maze blocks visible. */
+  const showAnswerPath = document.getElementById('chk-answer-path').checked;
+  if (showAnswerPath && path.length > 1) {
     if (crisp) {
       ctx.fillStyle = color('path');
     } else {
@@ -1058,16 +1123,122 @@ function toggleVisibility() {
     document.getElementById('chk-simple').checked ? '' : 'none';
 }
 
-document.getElementById('draw-btn').addEventListener('click', draw);
+document.getElementById('draw-btn').addEventListener('click', () => {
+  /* Reset viewport to auto-fit whenever the user explicitly redraws. */
+  viewState.userControlled = false;
+  draw();
+  saveState();
+});
+
+/* ---- Canvas pan (drag) and zoom (wheel) ---- */
+(function initCanvasMouse() {
+  const canvas = document.getElementById('canvas');
+  let dragStart = null;
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const cxOld = viewState.cx, cyOld = viewState.cy, zOld = viewState.zoom;
+    /* Block coord under mouse before zoom. */
+    const bxAt = cxOld + (mx - rect.width / 2) / (BASE_CELL * zOld);
+    const byAt = cyOld - (my - rect.height / 2) / (BASE_CELL * zOld);
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    let zNew = zOld * factor;
+    zNew = Math.max(0.05, Math.min(8, zNew));
+    /* Keep mouse anchor: choose cx/cy so (bxAt, byAt) still maps to (mx, my). */
+    const CELLnew = BASE_CELL * zNew;
+    viewState.zoom = zNew;
+    viewState.cx = bxAt - (mx - rect.width / 2) / CELLnew;
+    viewState.cy = byAt + (my - rect.height / 2) / CELLnew;
+    viewState.userControlled = true;
+    draw();
+    saveState();
+  }, { passive: false });
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    dragStart = { x: e.clientX, y: e.clientY, cx: viewState.cx, cy: viewState.cy };
+    canvas.style.cursor = 'grabbing';
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!dragStart) return;
+    const CELL = BASE_CELL * viewState.zoom;
+    viewState.cx = dragStart.cx - (e.clientX - dragStart.x) / CELL;
+    viewState.cy = dragStart.cy + (e.clientY - dragStart.y) / CELL;
+    viewState.userControlled = true;
+    draw();
+  });
+  window.addEventListener('mouseup', () => {
+    if (dragStart) { dragStart = null; canvas.style.cursor = ''; saveState(); }
+  });
+})();
+
+/* ---- Save Image (canvas -> maze.png) ---- */
+document.getElementById('save-img-btn').addEventListener('click', () => {
+  const canvas = document.getElementById('canvas');
+  if (!canvas) return;
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'maze.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 'image/png');
+});
+
+/* ---- Copy Link: build URL with current UI state as query params ---- */
+const QUERY_CB_MAP = {
+  normal: 'chk-normal',
+  darkmode: 'chk-darkmode',
+  diagonal: 'chk-diagonal',
+  xyonly: 'chk-simple',
+};
+document.getElementById('copy-url-btn').addEventListener('click', () => {
+  const url = new URL(window.location.href);
+  url.search = '';
+  const maze = document.getElementById('maze-input').value;
+  const answer = document.getElementById('answer-input').value;
+  url.searchParams.set('maze', maze === '' ? 'empty' : maze);
+  url.searchParams.set('answer', answer === '' ? 'empty' : answer);
+  for (const [key, cbId] of Object.entries(QUERY_CB_MAP)) {
+    const el = document.getElementById(cbId);
+    if (el.checked !== CHECKBOX_DEFAULTS[cbId]) {
+      url.searchParams.set(key, el.checked ? '1' : '0');
+    }
+  }
+  if (viewState && viewState.userControlled) {
+    const round = v => Math.round(v * 1000) / 1000;
+    url.searchParams.set('pan', round(viewState.cx) + ',' + round(viewState.cy));
+    url.searchParams.set('zoom', String(round(viewState.zoom)));
+  }
+  const str = url.toString();
+  (navigator.clipboard && navigator.clipboard.writeText)
+    ? navigator.clipboard.writeText(str).catch(() => window.prompt('Copy this URL', str))
+    : window.prompt('Copy this URL', str);
+});
 document.getElementById('chk-normal').addEventListener('change', toggleVisibility);
 document.getElementById('chk-simple').addEventListener('change', toggleVisibility);
 document.getElementById('chk-diagonal').addEventListener('change', draw);
 document.getElementById('chk-step').addEventListener('change', draw);
+document.getElementById('chk-answer-path').addEventListener('change', draw);
 
 /* ---- localStorage persistence ---- */
 const STORAGE_KEY = 'repeated-maze-state';
 const TEXTAREA_IDS = ['maze-input', 'answer-input'];
-const CHECKBOX_IDS = ['chk-normal', 'chk-simple', 'chk-diagonal', 'chk-step', 'chk-darkmode'];
+const CHECKBOX_IDS = ['chk-normal', 'chk-simple', 'chk-diagonal', 'chk-step', 'chk-answer-path', 'chk-darkmode'];
+const CHECKBOX_DEFAULTS = {
+  'chk-normal': true,
+  'chk-simple': false,
+  'chk-diagonal': false,
+  'chk-step': true,
+  'chk-answer-path': true,
+  'chk-darkmode': false,
+};
 
 function applyDarkmode() {
   /* Toggle on <html> so the inline head script and this runtime toggle
@@ -1098,12 +1269,23 @@ function loadState() {
       }
     }
   }
+  if (state.view && typeof state.view.zoom === 'number') {
+    viewState = {
+      cx: state.view.cx,
+      cy: state.view.cy,
+      zoom: state.view.zoom,
+      userControlled: true,
+    };
+  }
 }
 
 function saveState() {
   const state = { textareas: {}, checkboxes: {} };
   for (const id of TEXTAREA_IDS) state.textareas[id] = document.getElementById(id).value;
   for (const id of CHECKBOX_IDS) state.checkboxes[id] = document.getElementById(id).checked;
+  if (viewState && viewState.userControlled) {
+    state.view = { cx: viewState.cx, cy: viewState.cy, zoom: viewState.zoom };
+  }
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
 }
 
@@ -1113,6 +1295,36 @@ if (/(^|[?&])reset(=|&|$)/.test(window.location.search)) {
 } else {
   loadState();
 }
+
+/* Apply URL query params over any restored/default state. Supported keys:
+ *   maze=<text|empty>, answer=<text|empty>,
+ *   normal=0|1, darkmode=0|1, diagonal=0|1, xyonly=0|1.
+ * Presence overrides; missing keys fall back to localStorage/defaults. */
+function applyQueryParams() {
+  let params;
+  try { params = new URLSearchParams(window.location.search); } catch (e) { return; }
+  const textMap = { maze: 'maze-input', answer: 'answer-input' };
+  for (const [k, id] of Object.entries(textMap)) {
+    if (params.has(k)) {
+      const v = params.get(k);
+      document.getElementById(id).value = v === 'empty' ? '' : v;
+    }
+  }
+  for (const [k, id] of Object.entries(QUERY_CB_MAP)) {
+    if (params.has(k)) {
+      document.getElementById(id).checked = params.get(k) === '1';
+    }
+  }
+  if (params.has('pan') || params.has('zoom')) {
+    const parts = (params.get('pan') || ',').split(',').map(parseFloat);
+    const cx = isFinite(parts[0]) ? parts[0] : viewState.cx;
+    const cy = isFinite(parts[1]) ? parts[1] : viewState.cy;
+    const z = parseFloat(params.get('zoom'));
+    const zoom = isFinite(z) ? z : viewState.zoom;
+    viewState = { cx, cy, zoom, userControlled: true };
+  }
+}
+applyQueryParams();
 
 /* Apply restored state to the UI. */
 applyDarkmode();
