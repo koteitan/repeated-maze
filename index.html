@@ -26,7 +26,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.13</span><!-- fixed 4x4 default viewport anchored to origin, responsive canvas height --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.14</span><!-- touch swipe/pinch for mobile pan-zoom --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -1191,6 +1191,72 @@ document.getElementById('draw-btn').addEventListener('click', () => {
   window.addEventListener('mouseup', () => {
     if (dragStart) { dragStart = null; canvas.style.cursor = ''; saveState(); }
   });
+
+  /* ---- Touch: 1-finger swipe = pan, 2-finger pinch = zoom ---- */
+  let touchState = null;      /* { mode: 'pan'|'pinch', ...anchor state } */
+  function touchPoint(t) {
+    const rect = canvas.getBoundingClientRect();
+    return { x: t.clientX - rect.left, y: t.clientY - rect.top, rect };
+  }
+  canvas.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+      const p = touchPoint(e.touches[0]);
+      touchState = { mode: 'pan', startX: p.x, startY: p.y, cx: viewState.cx, cy: viewState.cy };
+      e.preventDefault();
+    } else if (e.touches.length === 2) {
+      const p1 = touchPoint(e.touches[0]), p2 = touchPoint(e.touches[1]);
+      const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+      const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+      const CELL = BASE_CELL * viewState.zoom;
+      /* Block coord at the initial pinch midpoint, so zoom stays anchored. */
+      const bxAt = viewState.cx + (mx - p1.rect.width / 2) / CELL;
+      const byAt = viewState.cy - (my - p1.rect.height / 2) / CELL;
+      touchState = { mode: 'pinch', startDist: dist, startZoom: viewState.zoom, bxAt, byAt };
+      e.preventDefault();
+    }
+  }, { passive: false });
+  canvas.addEventListener('touchmove', (e) => {
+    if (!touchState) return;
+    if (touchState.mode === 'pan' && e.touches.length >= 1) {
+      const p = touchPoint(e.touches[0]);
+      const CELL = BASE_CELL * viewState.zoom;
+      viewState.cx = touchState.cx - (p.x - touchState.startX) / CELL;
+      viewState.cy = touchState.cy + (p.y - touchState.startY) / CELL;
+      viewState.userControlled = true;
+      draw();
+      e.preventDefault();
+    } else if (touchState.mode === 'pinch' && e.touches.length >= 2) {
+      const p1 = touchPoint(e.touches[0]), p2 = touchPoint(e.touches[1]);
+      const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+      const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+      let zNew = touchState.startZoom * (dist / touchState.startDist);
+      zNew = Math.max(0.05, Math.min(8, zNew));
+      const CELLnew = BASE_CELL * zNew;
+      viewState.zoom = zNew;
+      /* Keep the original block point under the current midpoint. */
+      viewState.cx = touchState.bxAt - (mx - p1.rect.width / 2) / CELLnew;
+      viewState.cy = touchState.byAt + (my - p1.rect.height / 2) / CELLnew;
+      viewState.userControlled = true;
+      draw();
+      e.preventDefault();
+    }
+  }, { passive: false });
+  canvas.addEventListener('touchend', (e) => {
+    if (e.touches.length === 0) {
+      if (touchState) { touchState = null; saveState(); }
+    } else if (e.touches.length === 1 && touchState && touchState.mode === 'pinch') {
+      /* Lifting one finger out of a pinch: continue as pan from the
+       * remaining finger without a coordinate jump. */
+      const p = touchPoint(e.touches[0]);
+      touchState = { mode: 'pan', startX: p.x, startY: p.y, cx: viewState.cx, cy: viewState.cy };
+    }
+  });
+  canvas.addEventListener('touchcancel', () => {
+    if (touchState) { touchState = null; saveState(); }
+  });
+  /* Disable native touch panning/zooming on the canvas so swipe/pinch
+   * reach our handlers instead of scrolling the page. */
+  canvas.style.touchAction = 'none';
 })();
 
 /* ---- Save Image (canvas -> maze.png) ---- */
