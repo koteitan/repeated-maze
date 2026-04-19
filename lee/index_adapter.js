@@ -307,12 +307,174 @@
       const p = subtermPos(key);
       if (p) termPos[key] = p;
     }
-    const portInfo = portSubKeys.map(({ srcKey, dstKey }, idx) => ({
-      srcDir: ports[idx].src.dir, srcIdx: ports[idx].src.idx,
-      dstDir: ports[idx].dst.dir, dstIdx: ports[idx].dst.idx,
-      src: subtermPos(srcKey),
-      dst: subtermPos(dstKey),
-    }));
+    /* Trace the cell path each port traverses in the final subgrid so
+     * the answer path can be drawn on top of the exact Lee subport. */
+    const SIDES_OF = {
+      '─': 'LR', '│': 'UD',
+      '└': 'UR', '┘': 'UL', '┌': 'DR', '┐': 'DL',
+      '┼': 'LRUD',
+      '├': 'UDR', '┤': 'UDL', '┬': 'LRD', '┴': 'LRU',
+    };
+    const DIR_DELTA = { E: [1, 0], W: [-1, 0], N: [0, -1], S: [0, 1] };
+    const OPP_DIR = { E: 'W', W: 'E', N: 'S', S: 'N' };
+    const SIDE_OF_DIR = { E: 'R', W: 'L', N: 'U', S: 'D' };
+    const OPP_SIDE = { L: 'R', R: 'L', U: 'D', D: 'U' };
+    function tracePortCells(srcIdx, dstIdx, srcDir) {
+      const src = T[srcIdx], dst = T[dstIdx];
+      const cells = [{ x: src.x, y: src.y }];
+      let prevDir = srcDir;                /* direction we came FROM (outward) */
+      let cx = src.x, cy = src.y;
+      for (let step = 0; step < 200; step++) {
+        if (cx === dst.x && cy === dst.y && step > 0) return cells;
+        const inSide = SIDE_OF_DIR[prevDir];
+        const shape = m[cx] && m[cx][cy];
+        const conn = SIDES_OF[shape];
+        let outSide = null;
+        if (conn) {
+          const outs = conn.split('').filter(s => s !== inSide);
+          if (outs.length === 1) outSide = outs[0];
+          else if (outs.length > 1) {
+            const opp = OPP_SIDE[inSide];
+            outSide = outs.includes(opp) ? opp : outs[0];
+          }
+        }
+        if (!outSide) return null;
+        const exitDir = { L: 'W', R: 'E', U: 'N', D: 'S' }[outSide];
+        const d = DIR_DELTA[exitDir];
+        cx += d[0]; cy += d[1];
+        cells.push({ x: cx, y: cy });
+        prevDir = OPP_DIR[exitDir];
+      }
+      return null;
+    }
+
+    /* Inward offset (block-local pixel) by half a subblock, used for the
+     * answer-path branch-subport detour on ports that enter / exit at a
+     * non-first subterminal: (terminal_edge) → mt (half sub-block inward)
+     * → st (sub-cell centre) → … (Lee cells) → mt_dst → (terminal_edge).
+     * Spec: diagonal.md §branch subport answer-path drawing rule. */
+    const HALF = { W: [cellW / 2, 0], E: [-cellW / 2, 0], N: [0, cellH / 2], S: [0, -cellH / 2] };
+
+    const portInfo = portSubKeys.map(({ srcKey, dstKey }, idx) => {
+      const sIdx = tinIdxByKey[srcKey];
+      const dIdx = tinIdxByKey[dstKey];
+      const srcDir = ports[idx].src.dir;
+      const dstDir = ports[idx].dst.dir;
+      const srcIdx = ports[idx].src.idx;
+      const dstIdx = ports[idx].dst.idx;
+      const srcSub = parseInt(srcKey.split('-')[1], 10);
+      const dstSub = parseInt(dstKey.split('-')[1], 10);
+      const cells = tracePortCells(sIdx, dIdx, srcDir);
+      const srcP = subtermPos(srcKey);
+      const dstP = subtermPos(dstKey);
+      let cellPath = null;
+      /* answerSegments: array of polylines. When a branch-subport detour
+       * is present on an endpoint, the polyline is split so the red
+       * trail stops at "st" (sub-cell centre) on the branch side rather
+       * than continuing through the sub-terminal cell's Lee subport.
+       *
+       * Per diagonal.md answer-path rule on a branch subport:
+       *   A) terminal_edge → mt (half sub-block inward from terminal rep)
+       *   B) subterm_edge → st (half sub-block inward from sub-edge)
+       *   C) mt → st (perpendicular)
+       * Line A + Line C appear as a stand-alone segment, Line B as a
+       * branchStub, and the main Lee cell-path is drawn separately. */
+      const answerSegments = [];
+      const answerSegmentsGrid = [];
+      const answerSegmentsLabels = [];
+      const answerSegmentsKind = [];   /* 'src-branch' | 'main' | 'dst-branch' */
+      const branchStubs = [];
+      const branchStubsGrid = [];
+      const branchStubsKind = [];      /* 'src-branch' | 'dst-branch' */
+      if (cells) {
+        cellPath = [srcP];
+        for (let ci = 0; ci < cells.length; ci++) {
+          const c = cells[ci];
+          cellPath.push({ x: (c.x + 0.5) * cellW, y: (c.y + 0.5) * cellH });
+        }
+        cellPath.push(dstP);
+
+        /* Subgrid (c, r) for each cellPath point. Edge points (the
+         * subterm pixel at index 0 and len-1) are assigned to the
+         * adjacent subterm cell so "line for sb(c,r)" labels map to a
+         * real subblock. */
+        const cellsGrid = [];
+        cellsGrid.push({ c: cells[0].x, r: cells[0].y });
+        for (const cc of cells) cellsGrid.push({ c: cc.x, r: cc.y });
+        cellsGrid.push({ c: cells[cells.length - 1].x, r: cells[cells.length - 1].y });
+
+        const srcTerm = termPos[srcDir + srcIdx];
+        const dstTerm = termPos[dstDir + dstIdx];
+        const srcBranch = srcSub > 0 && srcTerm;
+        const dstBranch = dstSub > 0 && dstTerm;
+        const srcCell = cellsGrid[0];
+        const dstCell = cellsGrid[cellsGrid.length - 1];
+
+        if (srcBranch) {
+          const d = HALF[srcDir];
+          answerSegments.push([
+            { x: srcTerm.x, y: srcTerm.y },                       /* A start */
+            { x: srcTerm.x + d[0], y: srcTerm.y + d[1] },         /* A end = C start (mt) */
+            cellPath[1],                                          /* C end = st (sub-cell centre) */
+          ]);
+          answerSegmentsGrid.push([srcCell, srcCell, srcCell]);
+          answerSegmentsLabels.push(['t', 'sp']);                  /* seg0 = Line A, seg1 = Line C */
+          answerSegmentsKind.push('src-branch');
+          /* Line B: subterm 内側端 (st = cellPath[1], Lee terminal 出発点)
+           * から次 subblock の cell center (cellPath[2]) までを bridge。
+           * 外周点 cellPath[0] は使わない。 */
+          if (cellPath.length >= 3) {
+            branchStubs.push({ a: cellPath[1], b: cellPath[2] });
+            branchStubsGrid.push({ a: srcCell, b: cellsGrid[2] });
+            branchStubsKind.push('src-branch');
+          }
+        }
+        /* Main Lee cell-path, trimmed of endpoints taken by the branch
+         * detours above so the red trail doesn't re-enter the sub-cell. */
+        const mainStart = srcBranch ? 2 : 0;
+        const mainEnd   = dstBranch ? cellPath.length - 2 : cellPath.length;
+        if (mainEnd - mainStart >= 2) {
+          const main = cellPath.slice(mainStart, mainEnd);
+          answerSegments.push(main);
+          answerSegmentsGrid.push(cellsGrid.slice(mainStart, mainEnd));
+          answerSegmentsLabels.push(new Array(main.length - 1).fill('polyline'));
+          answerSegmentsKind.push('main');
+        }
+        if (dstBranch) {
+          const d = HALF[dstDir];
+          answerSegments.push([
+            cellPath[cellPath.length - 2],                       /* st (sub-cell centre) */
+            { x: dstTerm.x + d[0], y: dstTerm.y + d[1] },        /* mt */
+            { x: dstTerm.x, y: dstTerm.y },                      /* terminal edge */
+          ]);
+          answerSegmentsGrid.push([dstCell, dstCell, dstCell]);
+          answerSegmentsLabels.push(['sp', 't']);                  /* seg0 = Line C, seg1 = Line A */
+          answerSegmentsKind.push('dst-branch');
+          /* Line B: dst 側は「前 subblock cell center → dst subterm cell
+           * center (st = cellPath[last-1])」を bridge。 */
+          if (cellPath.length >= 3) {
+            const last = cellPath.length - 1;
+            branchStubs.push({ a: cellPath[last - 2], b: cellPath[last - 1] });
+            branchStubsGrid.push({ a: cellsGrid[last - 2], b: dstCell });
+            branchStubsKind.push('dst-branch');
+          }
+        }
+      }
+      return {
+      srcDir, srcIdx, srcSub,
+      dstDir, dstIdx, dstSub,
+      src: srcP,
+      dst: dstP,
+      cellPath,
+      answerSegments,
+      answerSegmentsGrid,
+      answerSegmentsLabels,
+      answerSegmentsKind,
+      branchStubs,
+      branchStubsGrid,
+      branchStubsKind,
+      };
+    });
 
     /* ---- 11. Junctions ---- */
     const junctions = [];

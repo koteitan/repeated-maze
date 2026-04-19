@@ -20,7 +20,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.8</span><!-- crisper rendering, outer start/goal arrows, darkmode no-flash --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.9</span><!-- branch subport bridge B-line + debug tagging --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -34,7 +34,7 @@ try {
 <div style="margin-bottom: 8px;">
   <label><input type="checkbox" id="chk-normal" checked> normal</label>
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-simple"> x,y only</label>
-  <label style="margin-left: 12px;"><input type="checkbox" id="chk-directed"> directed</label>
+  <label style="margin-left: 12px;"><input type="checkbox" id="chk-diagonal"> diagonal</label>
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-step" checked> step</label>
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-darkmode"> darkmode</label>
 </div>
@@ -66,6 +66,10 @@ try {
 const BASE_CELL = 240;
 const BASE_MARGIN = 100;
 
+/* Internal debug switches (no UI). Flip to false at release. */
+const DEBUG_SHOW_SUBBLOCK_GRID = true;
+const DEBUG_LOG_ANSWER_PATH = true;
+
 /* Read a CSS custom property (e.g. color('stroke') -> value of --stroke).
  * Reads from <body> so that body.darkmode overrides propagate. */
 function color(name) {
@@ -95,9 +99,14 @@ function parseMaze(text) {
     if (body === '(none)' || !body) continue;
     const ports = body.split(',').map(p => {
       const t = p.trim();
-      const parts = t.includes('->') ? t.split('->') : t.split('-');
+      const isDirected = t.includes('->');
+      const parts = isDirected ? t.split('->') : t.split('-');
       if (parts.length !== 2) return null;
-      return { src: parseTermName(parts[0]), dst: parseTermName(parts[1]) };
+      return {
+        src: parseTermName(parts[0]),
+        dst: parseTermName(parts[1]),
+        directed: isDirected,
+      };
     }).filter(p => p !== null);
     if (type === 'normal') result.normal = ports;
     else if (type === 'nx') result.nx = ports;
@@ -342,14 +351,44 @@ function setupCanvas(canvasId, wrapId, bounds) {
 
 /* ---- Draw normal view ---- */
 
-function drawNormal(maze, path, nterm, bounds, directed) {
+function drawNormal(maze, path, nterm, bounds, diagonal) {
   const { ctx, bpos, CELL, MARGIN, S, hlineBetween, vlineBetween } = setupCanvas('canvas', 'canvas-wrap', bounds);
   const { minX, maxX, minY, maxY } = bounds;
+
+  /* Arrowhead policy is driven by maze syntax:
+   *   all '-'   → no arrowheads
+   *   any '->'  → directed ports get an arrow at dst; undirected ports
+   *               ("-" in a mixed-syntax maze) get arrows at both ends.
+   */
+  const allPorts = (maze.normal || []).concat(maze.nx || [], maze.ny || []);
+  const hasDirected = allPorts.some(p => p.directed);
+  function arrowCfg(port) {
+    if (!hasDirected) return { src: false, dst: false };
+    if (port.directed) return { src: false, dst: true };
+    return { src: true, dst: true };
+  }
+  /* Stroke-only arrowhead "V" (no shaft) at (tx, ty) along angle `ang`. */
+  function arrowheadV(tx, ty, ang, col) {
+    const hl = 8 * S;
+    const spread = Math.PI / 6;
+    ctx.save();
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(tx - hl * Math.cos(ang - spread), ty - hl * Math.sin(ang - spread));
+    ctx.lineTo(tx, ty);
+    ctx.lineTo(tx - hl * Math.cos(ang + spread), ty - hl * Math.sin(ang + spread));
+    ctx.stroke();
+    ctx.restore();
+  }
+  const DIR_ANG = { E: 0, W: Math.PI, N: -Math.PI / 2, S: Math.PI / 2 };
 
   /* Compute grid-aligned terminal positions and routes for this maze */
   let gridTermPos = null;
   let gridResult = null;
-  if (!directed) {
+  if (!diagonal) {
     const deduped0 = [];
     const seen0 = new Set();
     for (const port of maze.normal) {
@@ -389,8 +428,8 @@ function drawNormal(maze, path, nterm, bounds, directed) {
       const dstMatchesB = pp.dstDir === bTerm.dir && pp.dstIdx === bTerm.idx;
       const srcMatchesB = pp.srcDir === bTerm.dir && pp.srcIdx === bTerm.idx;
       const dstMatchesA = pp.dstDir === aTerm.dir && pp.dstIdx === aTerm.idx;
-      if (srcMatchesA && dstMatchesB) return { B, aPos: pp.src, bPos: pp.dst };
-      if (srcMatchesB && dstMatchesA) return { B, aPos: pp.dst, bPos: pp.src };
+      if (srcMatchesA && dstMatchesB) return { B, aPos: pp.src, bPos: pp.dst, answerSegments: pp.answerSegments, answerSegmentsGrid: pp.answerSegmentsGrid, answerSegmentsLabels: pp.answerSegmentsLabels, answerSegmentsKind: pp.answerSegmentsKind, branchStubs: pp.branchStubs, branchStubsGrid: pp.branchStubsGrid, branchStubsKind: pp.branchStubsKind, reversed: false };
+      if (srcMatchesB && dstMatchesA) return { B, aPos: pp.dst, bPos: pp.src, answerSegments: pp.answerSegments, answerSegmentsGrid: pp.answerSegmentsGrid, answerSegmentsLabels: pp.answerSegmentsLabels, answerSegmentsKind: pp.answerSegmentsKind, branchStubs: pp.branchStubs, branchStubsGrid: pp.branchStubsGrid, branchStubsKind: pp.branchStubsKind, reversed: true };
     }
     return null;
   }
@@ -415,7 +454,7 @@ function drawNormal(maze, path, nterm, bounds, directed) {
   }
 
   /* Draw a single port edge (diagonal: line or arrow) */
-  function drawPortDiag(fx, fy, tx, ty, sameDir, dirChar) {
+  function drawPortDiag(fx, fy, tx, ty, sameDir, dirChar, arrSrc, arrDst) {
     if (sameDir) {
       const mx = (fx + tx) / 2, my = (fy + ty) / 2;
       const off = 30 * S;
@@ -426,15 +465,13 @@ function drawNormal(maze, path, nterm, bounds, directed) {
         case 'N': cpy = my + off; break;
         case 'S': cpy = my - off; break;
       }
-      if (directed)
-        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 1);
-      else
-        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 1);
+      drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 1);
+      if (arrDst) arrowheadV(tx, ty, Math.atan2(ty - cpy, tx - cpx), color('stroke'));
+      if (arrSrc) arrowheadV(fx, fy, Math.atan2(fy - cpy, fx - cpx), color('stroke'));
     } else {
-      if (directed)
-        drawArrow(ctx, fx, fy, tx, ty, color('stroke'), 1);
-      else
-        drawLine(ctx, fx, fy, tx, ty, color('stroke'), 1);
+      drawLine(ctx, fx, fy, tx, ty, color('stroke'), 1);
+      if (arrDst) arrowheadV(tx, ty, Math.atan2(ty - fy, tx - fx), color('stroke'));
+      if (arrSrc) arrowheadV(fx, fy, Math.atan2(fy - ty, fx - tx), color('stroke'));
     }
   }
 
@@ -473,10 +510,34 @@ function drawNormal(maze, path, nterm, bounds, directed) {
   }
 
   /* Normal port edges inside each block */
-  if (!directed) {
+  if (!diagonal) {
     /* Undirected: orthogonal routing with sub-block grid */
     const { subgrid, nR: sgR, nC: sgC, junctions } = gridResult;
     const sgCW = CELL / sgC, sgRH = CELL / sgR;
+    /* Subblock boundaries — dotted interior lines (debug only). */
+    if (DEBUG_SHOW_SUBBLOCK_GRID) {
+      for (let bx = minX; bx <= maxX; bx++) {
+        for (let by = minY; by <= maxY; by++) {
+          if (bx < 1 || by < 1) continue;
+          const bp = bpos(bx, by);
+          ctx.save();
+          ctx.strokeStyle = color('block-grid-light');
+          ctx.lineWidth = 1;
+          ctx.setLineDash([2 * S, 2 * S]);
+          ctx.beginPath();
+          for (let c = 1; c < sgC; c++) {
+            const x = bp.x + c * sgCW;
+            ctx.moveTo(x, bp.y); ctx.lineTo(x, bp.y + CELL);
+          }
+          for (let r = 1; r < sgR; r++) {
+            const y = bp.y + r * sgRH;
+            ctx.moveTo(bp.x, y); ctx.lineTo(bp.x + CELL, y);
+          }
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+    }
     for (let bx = minX; bx <= maxX; bx++) {
       for (let by = minY; by <= maxY; by++) {
         if (bx < 1 || by < 1) continue;
@@ -519,7 +580,7 @@ function drawNormal(maze, path, nterm, bounds, directed) {
       }
     }
   } else {
-    /* Directed: diagonal arrows */
+    /* Diagonal mode: straight/curved lines directly between terminals. */
     for (let bx = minX; bx <= maxX; bx++) {
       for (let by = minY; by <= maxY; by++) {
         if (bx < 1 || by < 1) continue;
@@ -527,9 +588,33 @@ function drawNormal(maze, path, nterm, bounds, directed) {
         for (const port of maze.normal) {
           const from = termLocalPos(port.src.dir, port.src.idx, nterm, CELL);
           const to = termLocalPos(port.dst.dir, port.dst.idx, nterm, CELL);
+          const a = arrowCfg(port);
           drawPortDiag(bp.x + from.x, bp.y + from.y, bp.x + to.x, bp.y + to.y,
-                   port.src.dir === port.dst.dir, port.src.dir);
+                   port.src.dir === port.dst.dir, port.src.dir, a.src, a.dst);
         }
+      }
+    }
+  }
+
+  /* Orthogonal-mode arrowhead overlay on normal-port terminals (when the
+   * maze declares any directed port). Places a "V" at each block edge
+   * subterminal position, pointing outward. */
+  if (!diagonal && hasDirected && gridResult && gridResult.portInfo) {
+    for (let bx = minX; bx <= maxX; bx++) {
+      for (let by = minY; by <= maxY; by++) {
+        if (bx < 1 || by < 1) continue;
+        const bp = bpos(bx, by);
+        gridResult.portInfo.forEach((pp) => {
+          const port = maze.normal.find(q =>
+            (q.src.dir === pp.srcDir && q.src.idx === pp.srcIdx &&
+             q.dst.dir === pp.dstDir && q.dst.idx === pp.dstIdx) ||
+            (q.src.dir === pp.dstDir && q.src.idx === pp.dstIdx &&
+             q.dst.dir === pp.srcDir && q.dst.idx === pp.srcIdx));
+          if (!port) return;
+          const a = arrowCfg(port);
+          if (a.src) arrowheadV(bp.x + pp.src.x, bp.y + pp.src.y, DIR_ANG[pp.srcDir], color('stroke'));
+          if (a.dst) arrowheadV(bp.x + pp.dst.x, bp.y + pp.dst.y, DIR_ANG[pp.dstDir], color('stroke'));
+        });
       }
     }
   }
@@ -540,7 +625,7 @@ function drawNormal(maze, path, nterm, bounds, directed) {
     const bp = bpos(0, by);
     const drawn = new Set();
     for (const port of maze.nx) {
-      if (!directed) {
+      if (!diagonal) {
         const k1 = port.src.idx + ',' + port.dst.idx;
         const k2 = port.dst.idx + ',' + port.src.idx;
         if (drawn.has(k2)) continue;
@@ -548,20 +633,20 @@ function drawNormal(maze, path, nterm, bounds, directed) {
       }
       /* nx ports: E terminals at x=0 boundary. Use W channel y for grid alignment. */
       const fwk = 'W' + port.src.idx, twk = 'W' + port.dst.idx;
-      const from = (!directed && gridTermPos && gridTermPos[fwk])
+      const from = (!diagonal && gridTermPos && gridTermPos[fwk])
         ? { x: CELL, y: gridTermPos[fwk].y }
         : termLocalPos('E', port.src.idx, nterm, CELL);
-      const to = (!directed && gridTermPos && gridTermPos[twk])
+      const to = (!diagonal && gridTermPos && gridTermPos[twk])
         ? { x: CELL, y: gridTermPos[twk].y }
         : termLocalPos('E', port.dst.idx, nterm, CELL);
       const fx = bp.x + from.x, fy = bp.y + from.y;
       const tx = bp.x + to.x, ty = bp.y + to.y;
       const mx = (fx + tx) / 2, my = (fy + ty) / 2;
       const cpx = mx - 30 * S, cpy = my;
-      if (directed)
-        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 1);
-      else
-        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 1);
+      drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 1);
+      const a = arrowCfg(port);
+      if (a.dst) arrowheadV(tx, ty, Math.atan2(ty - cpy, tx - cpx), color('stroke'));
+      if (a.src) arrowheadV(fx, fy, Math.atan2(fy - cpy, fx - cpx), color('stroke'));
     }
   }
 
@@ -571,7 +656,7 @@ function drawNormal(maze, path, nterm, bounds, directed) {
     const bp = bpos(bx, 0);
     const drawn = new Set();
     for (const port of maze.ny) {
-      if (!directed) {
+      if (!diagonal) {
         const k1 = port.src.idx + ',' + port.dst.idx;
         const k2 = port.dst.idx + ',' + port.src.idx;
         if (drawn.has(k2)) continue;
@@ -580,20 +665,20 @@ function drawNormal(maze, path, nterm, bounds, directed) {
       /* ny ports: N terminals at y=0 boundary. N[i]@(bx,0) = S[i]@(bx,1),
        * so use S channel x for grid alignment with the adjacent normal block. */
       const fsk = 'S' + port.src.idx, tsk = 'S' + port.dst.idx;
-      const from = (!directed && gridTermPos && gridTermPos[fsk])
+      const from = (!diagonal && gridTermPos && gridTermPos[fsk])
         ? { x: gridTermPos[fsk].x, y: 0 }
         : termLocalPos('N', port.src.idx, nterm, CELL);
-      const to = (!directed && gridTermPos && gridTermPos[tsk])
+      const to = (!diagonal && gridTermPos && gridTermPos[tsk])
         ? { x: gridTermPos[tsk].x, y: 0 }
         : termLocalPos('N', port.dst.idx, nterm, CELL);
       const fx = bp.x + from.x, fy = bp.y + from.y;
       const tx = bp.x + to.x, ty = bp.y + to.y;
       const mx = (fx + tx) / 2, my = (fy + ty) / 2;
       const cpx = mx, cpy = my + 30 * S;
-      if (directed)
-        drawCurvedArrowCP(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 1);
-      else
-        drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 1);
+      drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 1);
+      const a = arrowCfg(port);
+      if (a.dst) arrowheadV(tx, ty, Math.atan2(ty - cpy, tx - cpx), color('stroke'));
+      if (a.src) arrowheadV(fx, fy, Math.atan2(fy - cpy, fx - cpx), color('stroke'));
     }
   }
 
@@ -653,47 +738,148 @@ function drawNormal(maze, path, nterm, bounds, directed) {
       ctx.lineWidth = 1;
       ctx.lineCap = 'butt';
       ctx.beginPath();
-      ctx.moveTo(statePos(path[0]).x, statePos(path[0]).y);
     }
+    const fmtState = s => '(' + s.x + ',' + s.y + ',' + s.dir + s.idx + ')';
+    const fmtPt = pt => '( ' + Math.round(pt.x) + ',' + Math.round(pt.y) + ' )';
     for (let i = 1; i < path.length; i++) {
-      /* Try to resolve both endpoints to the subterminal positions the
-       * actual port uses (so the line aligns with the Lee subport). */
-      let prev, p;
       const ends = segmentPortEnds(path[i - 1], path[i]);
+      const dbgLines = [];
+      /* Segment polylines for this answer-path step. Each sub-polyline
+       * is drawn independently so a branch-subport detour produces a
+       * visible gap over the sub-terminal cell (per diagonal.md spec). */
+      let polylines;
+      let polylinesGrid;   /* 1:1 with polylines, each point = subgrid (c,r) or null */
+      let polylinesLabels; /* 1:1 with polylines, each entry is length = segments (points-1) */
+      let polylinesKind;   /* 1:1 with polylines: 'src-branch' | 'main' | 'dst-branch' */
+      let prev, p;
       if (ends) {
         const bp = bpos(ends.B.x, ends.B.y);
         prev = { x: bp.x + ends.aPos.x, y: bp.y + ends.aPos.y };
         p    = { x: bp.x + ends.bPos.x, y: bp.y + ends.bPos.y };
+        if (diagonal || !ends.answerSegments || !ends.answerSegments.length) {
+          polylines = [[prev, p]];
+          polylinesGrid = [[null, null]];
+          polylinesLabels = [['polyline']];
+          polylinesKind = ['main'];
+        } else {
+          let segs = ends.answerSegments;
+          let segsGrid = ends.answerSegmentsGrid || segs.map(s => s.map(() => null));
+          let segsLabels = ends.answerSegmentsLabels
+            || segs.map(s => new Array(Math.max(0, s.length - 1)).fill('polyline'));
+          let segsKind = ends.answerSegmentsKind || segs.map(() => 'main');
+          if (ends.reversed) {
+            segs = segs.slice().reverse().map(s => s.slice().reverse());
+            segsGrid = segsGrid.slice().reverse().map(s => s.slice().reverse());
+            segsLabels = segsLabels.slice().reverse().map(s => s.slice().reverse());
+            segsKind = segsKind.slice().reverse();
+          }
+          polylines = segs.map(s => s.map(q => ({ x: bp.x + q.x, y: bp.y + q.y })));
+          polylinesGrid = segsGrid;
+          polylinesLabels = segsLabels;
+          polylinesKind = segsKind;
+        }
       } else {
         prev = statePos(path[i - 1]);
         p    = statePos(path[i]);
+        if (diagonal) {
+          polylines = [[prev, p]];
+          polylinesGrid = [[null, null]];
+          polylinesLabels = [['polyline']];
+          polylinesKind = ['main'];
+        } else {
+          /* Fallback L-bend (e.g. nx/ny traversals without portInfo). */
+          const dx = Math.abs(p.x - prev.x), dy = Math.abs(p.y - prev.y);
+          if (dx > 0.5 && dy > 0.5) {
+            const bend = (path[i].dir === 'N')
+              ? { x: p.x, y: prev.y }
+              : { x: prev.x, y: p.y };
+            polylines = [[prev, bend, p]];
+            polylinesGrid = [[null, null, null]];
+            polylinesLabels = [['polyline', 'polyline']];
+            polylinesKind = ['main'];
+          } else {
+            polylines = [[prev, p]];
+            polylinesGrid = [[null, null]];
+            polylinesLabels = [['polyline']];
+            polylinesKind = ['main'];
+          }
+        }
       }
-      const dx = Math.abs(p.x - prev.x), dy = Math.abs(p.y - prev.y);
-      /* L-bend: pick the corner point so the last segment matches the
-       * arriving state's edge orientation (E/W → horizontal last). */
-      let bend = null;
-      if (dx > 0.5 && dy > 0.5) {
-        bend = (path[i].dir === 'N')
-          ? { x: p.x, y: prev.y }       /* horizontal first, then vertical */
-          : { x: prev.x, y: p.y };      /* vertical first, then horizontal */
-      }
+      const fmtSb = sb => sb ? ' for sb(' + sb.c + ',' + sb.r + ')' : '';
+      const fmtBk = bk => bk ? ' in b(' + bk.x + ',' + bk.y + ')' : '';
+      const logLine = (a, b, tag, sb, bk) =>
+        dbgLines.push('line' + fmtPt(a) + '->' + fmtPt(b) + (tag ? ' // ' + tag + fmtSb(sb) + fmtBk(bk) : ''));
+      const tagOf = l =>
+        l === 't'  ? 'branch subport(t )' :
+        l === 'sp' ? 'branch subport(sp)' :
+                     'polyline';
       if (crisp) {
         const drawSeg = (a, b) => {
           if (Math.abs(a.y - b.y) < 0.5) hlineBetween(a.x, a.y, b.x);
           else if (Math.abs(a.x - b.x) < 0.5) vlineBetween(a.x, a.y, b.y);
+          else {
+            ctx.save();
+            ctx.strokeStyle = color('path');
+            ctx.lineWidth = 1;
+            ctx.lineCap = 'butt';
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
+            ctx.restore();
+          }
         };
-        if (bend) { drawSeg(prev, bend); drawSeg(bend, p); }
-        else drawSeg(prev, p);
+        for (let pi = 0; pi < polylines.length; pi++) {
+          const wp = polylines[pi], wg = polylinesGrid[pi], wl = polylinesLabels[pi];
+          for (let w = 1; w < wp.length; w++) { drawSeg(wp[w - 1], wp[w]); logLine(wp[w - 1], wp[w], tagOf(wl[w - 1]), wg[w - 1], ends && ends.B); }
+        }
       } else {
-        if (bend) ctx.lineTo(bend.x, bend.y);
-        ctx.lineTo(p.x, p.y);
+        for (let pi = 0; pi < polylines.length; pi++) {
+          const wp = polylines[pi], wg = polylinesGrid[pi], wl = polylinesLabels[pi];
+          ctx.moveTo(wp[0].x, wp[0].y);
+          for (let w = 1; w < wp.length; w++) ctx.lineTo(wp[w].x, wp[w].y);
+          for (let w = 1; w < wp.length; w++) logLine(wp[w - 1], wp[w], tagOf(wl[w - 1]), wg[w - 1], ends && ends.B);
+        }
       }
-      /* Directed mode: add an arrowhead at each segment endpoint,
-       * aligned with the final approach direction (post-bend if any). */
-      if (directed) {
-        const from = bend || prev;
-        if (Math.abs(from.x - p.x) + Math.abs(from.y - p.y) > 0.5) {
-          const ang = Math.atan2(p.y - from.y, p.x - from.x);
+      /* Branch subport "Line B" stubs: a half-subblock-long line from the
+       * sub-terminal edge to the sub-cell centre for each non-first
+       * subterminal endpoint. Drawn as a separate axis-aligned red
+       * segment in block-local coords (matches diagonal.md answer-path
+       * rule 2). Only shown in orthogonal mode. */
+      if (!diagonal && ends && ends.branchStubs && ends.branchStubs.length) {
+        const bp = bpos(ends.B.x, ends.B.y);
+        const stubsGrid = ends.branchStubsGrid || [];
+        for (let si = 0; si < ends.branchStubs.length; si++) {
+          const stub = ends.branchStubs[si];
+          const ax = bp.x + stub.a.x, ay = bp.y + stub.a.y;
+          const bx = bp.x + stub.b.x, by = bp.y + stub.b.y;
+          if (crisp) {
+            ctx.fillStyle = color('path');
+            if (Math.abs(ay - by) < 0.5) hlineBetween(ax, ay, bx);
+            else if (Math.abs(ax - bx) < 0.5) vlineBetween(ax, ay, by);
+          } else {
+            ctx.save();
+            ctx.strokeStyle = color('path');
+            ctx.lineWidth = 1;
+            ctx.lineCap = 'butt';
+            ctx.beginPath();
+            ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
+            ctx.stroke();
+            ctx.restore();
+          }
+          const sg = stubsGrid[si] && stubsGrid[si].a;
+          logLine({ x: ax, y: ay }, { x: bx, y: by }, 'branch subport(st)', sg, ends.B);
+        }
+      }
+      /* When the maze declares any directed port, stamp an arrowhead at
+       * each path segment endpoint, aligned with the final waypoint
+       * approach direction. */
+      const lastPoly = polylines.length ? polylines[polylines.length - 1] : null;
+      if (hasDirected && lastPoly && lastPoly.length >= 2) {
+        const from = lastPoly[lastPoly.length - 2];
+        const to = lastPoly[lastPoly.length - 1];
+        if (Math.abs(from.x - to.x) + Math.abs(from.y - to.y) > 0.5) {
+          const ang = Math.atan2(to.y - from.y, to.x - from.x);
           const spread = Math.PI / 6;
           const hl = Math.max(6, 10 * S);
           ctx.save();
@@ -703,39 +889,34 @@ function drawNormal(maze, path, nterm, bounds, directed) {
           ctx.lineCap = 'round';
           ctx.lineJoin = 'round';
           ctx.beginPath();
-          ctx.moveTo(p.x - hl * Math.cos(ang - spread), p.y - hl * Math.sin(ang - spread));
-          ctx.lineTo(p.x, p.y);
-          ctx.lineTo(p.x - hl * Math.cos(ang + spread), p.y - hl * Math.sin(ang + spread));
+          const av1 = { x: to.x - hl * Math.cos(ang - spread), y: to.y - hl * Math.sin(ang - spread) };
+          const av2 = { x: to.x - hl * Math.cos(ang + spread), y: to.y - hl * Math.sin(ang + spread) };
+          ctx.moveTo(av1.x, av1.y);
+          ctx.lineTo(to.x, to.y);
+          ctx.lineTo(av2.x, av2.y);
           ctx.stroke();
           ctx.restore();
+          const lastGrid = polylinesGrid[polylinesGrid.length - 1];
+          const endSb = lastGrid && lastGrid[lastGrid.length - 1];
+          logLine(av1, to, 'arrowhead', endSb, ends && ends.B);
+          logLine(to, av2, 'arrowhead', endSb, ends && ends.B);
         }
+      }
+      if (DEBUG_LOG_ANSWER_PATH) {
+        console.log('draw path for ' + fmtState(path[i - 1]) + ' -> ' + fmtState(path[i]));
+        for (const line of dbgLines) console.log('  ' + line);
       }
     }
     if (!crisp) { ctx.stroke(); ctx.restore(); }
 
-    /* Step number circles (disable via [ ] step). */
+    /* Step number circles (disable via [ ] step).
+     * Anchor each circle at the terminal representative position
+     * (statePos). A state denotes a TERMINAL boundary, so even when the
+     * incoming/outgoing ports use different subterminals of that terminal,
+     * the step label belongs with the terminal itself. */
     const showStep = document.getElementById('chk-step').checked;
     if (showStep) for (let i = 0; i < path.length; i++) {
-      /* Snap the step circle to the actual port-subterminal position so
-       * it sits on the (shifted) path line instead of the representative
-       * statePos. Prefer the outgoing segment's endpoint; fall back to
-       * the incoming segment for the last state. */
-      let p;
-      if (i < path.length - 1) {
-        const ends = segmentPortEnds(path[i], path[i + 1]);
-        if (ends) {
-          const bp = bpos(ends.B.x, ends.B.y);
-          p = { x: bp.x + ends.aPos.x, y: bp.y + ends.aPos.y };
-        }
-      }
-      if (!p && i > 0) {
-        const ends = segmentPortEnds(path[i - 1], path[i]);
-        if (ends) {
-          const bp = bpos(ends.B.x, ends.B.y);
-          p = { x: bp.x + ends.bPos.x, y: bp.y + ends.bPos.y };
-        }
-      }
-      if (!p) p = statePos(path[i]);
+      const p = statePos(path[i]);
       const r = ((i >= 100) ? 26 : 20) * S;
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, 0, 2 * Math.PI);
@@ -752,117 +933,6 @@ function drawNormal(maze, path, nterm, bounds, directed) {
     }
   }
 
-  /* ---- Verification framework ---- */
-  if (!directed && gridTermPos) {
-    const errors = [];
-    const EPS = 0.5;
-
-    /* V1: nx ports — curve endpoints must match W channel y */
-    for (const port of maze.nx) {
-      const wSrc = gridTermPos['W' + port.src.idx];
-      const wDst = gridTermPos['W' + port.dst.idx];
-      if (!wSrc) errors.push('nx: W' + port.src.idx + ' missing from gridTermPos');
-      if (!wDst) errors.push('nx: W' + port.dst.idx + ' missing from gridTermPos');
-    }
-
-    /* V2: ny ports — curve endpoints must match S channel x */
-    for (const port of maze.ny) {
-      const sSrc = gridTermPos['S' + port.src.idx];
-      const sDst = gridTermPos['S' + port.dst.idx];
-      if (!sSrc) errors.push('ny: S' + port.src.idx + ' missing from gridTermPos');
-      if (!sDst) errors.push('ny: S' + port.dst.idx + ' missing from gridTermPos');
-    }
-
-    /* V3: nx curve y must match adjacent normal block's W spine y */
-    /* The nx curve is drawn at bp(0,by) + {x:CELL, y:termPos['W'+idx].y}
-     * The normal block spine at bp(1,by) has W[idx] at {x:0, y:termPos['W'+idx].y}
-     * These share the same CELL boundary, so y must match: both use termPos['W'+idx].y ✓
-     * But verify the spine actually contains that y */
-    if (gridResult) {
-      for (const port of maze.nx) {
-        for (const idx of [port.src.idx, port.dst.idx]) {
-          const wPos = gridTermPos['W' + idx];
-          /* Check: does any spine segment cover this y at x=0? */
-          let found = false;
-          for (const sp of gridResult.spines) {
-            if (sp.length >= 2 && Math.abs(sp[0].x) < EPS) {
-              const ys = sp.map(p => p.y);
-              const minY = Math.min(...ys), maxY = Math.max(...ys);
-              if (wPos.y >= minY - EPS && wPos.y <= maxY + EPS) found = true;
-            }
-            if (sp.length >= 2 && Math.abs(sp[0].y - wPos.y) < EPS && Math.abs(sp[1].y - wPos.y) < EPS) {
-              if (Math.min(sp[0].x, sp[1].x) < EPS) found = true;
-            }
-          }
-          if (!found) errors.push('nx: W' + idx + ' y=' + wPos.y.toFixed(1) + ' not connected to any spine at x=0');
-        }
-      }
-    }
-
-    /* V4: ny curve x must match adjacent normal block's S spine x */
-    if (gridResult) {
-      for (const port of maze.ny) {
-        for (const idx of [port.src.idx, port.dst.idx]) {
-          const sPos = gridTermPos['S' + idx];
-          let found = false;
-          for (const sp of gridResult.spines) {
-            if (sp.length >= 2 && Math.abs(sp[0].y - CELL) < EPS) {
-              const xs = sp.map(p => p.x);
-              const minX = Math.min(...xs), maxX = Math.max(...xs);
-              if (sPos.x >= minX - EPS && sPos.x <= maxX + EPS) found = true;
-            }
-            if (sp.length >= 2 && Math.abs(sp[0].x - sPos.x) < EPS && Math.abs(sp[1].x - sPos.x) < EPS) {
-              if (Math.max(sp[0].y, sp[1].y) > CELL - EPS) found = true;
-            }
-          }
-          if (!found) errors.push('ny: S' + idx + ' x=' + sPos.x.toFixed(1) + ' not connected to any spine at y=CELL');
-        }
-      }
-    }
-
-    /* V5: Answer path — no diagonal lines between consecutive states */
-    if (path.length > 1) {
-      for (let i = 0; i < path.length - 1; i++) {
-        const a = statePos(path[i]), b = statePos(path[i + 1]);
-        const dx = Math.abs(a.x - b.x), dy = Math.abs(a.y - b.y);
-        if (dx > EPS && dy > EPS) {
-          errors.push('path[' + i + ']->[' + (i+1) + ']: diagonal (' +
-            a.x.toFixed(1) + ',' + a.y.toFixed(1) + ')->(' +
-            b.x.toFixed(1) + ',' + b.y.toFixed(1) + ') dx=' + dx.toFixed(1) + ' dy=' + dy.toFixed(1));
-        }
-      }
-    }
-
-    /* V6: Start/Goal y must match W0/W1 */
-    const w0y = gridTermPos['W0'] ? gridTermPos['W0'].y : null;
-    const w1y = gridTermPos['W1'] ? gridTermPos['W1'].y : null;
-    if (w0y !== null && Math.abs(startPos.y - (bpos(0,1).y + w0y)) > EPS)
-      errors.push('Start y=' + startPos.y.toFixed(1) + ' != W0 y=' + (bpos(0,1).y + w0y).toFixed(1));
-    if (w1y !== null && Math.abs(goalPos.y - (bpos(0,1).y + w1y)) > EPS)
-      errors.push('Goal y=' + goalPos.y.toFixed(1) + ' != W1 y=' + (bpos(0,1).y + w1y).toFixed(1));
-
-    /* V7: gridTermPos completeness */
-    for (let i = 0; i < nterm; i++) {
-      for (const d of ['W', 'E', 'N', 'S'])
-        if (!gridTermPos[d + i]) errors.push('gridTermPos missing ' + d + i);
-    }
-
-    /* V8: Sub-port overlap detection */
-    if (gridResult && gridResult.overlaps) {
-      for (const ov of gridResult.overlaps) {
-        errors.push('OVERLAP: ' + ov.dir + ' at grid(' + ov.r + ',' + ov.c +
-          ') px(' + ov.px.x.toFixed(1) + ',' + ov.px.y.toFixed(1) + ')');
-      }
-    }
-
-    /* Output */
-    if (errors.length === 0) {
-      console.log('%c[Viewer Verify] ALL PASS', 'color:green;font-weight:bold');
-    } else {
-      console.log('%c[Viewer Verify] ' + errors.length + ' ERRORS:', 'color:red;font-weight:bold');
-      for (const e of errors) console.log('  ' + e);
-    }
-  }
 }
 
 /* ---- Draw simple (x,y only) view ---- */
@@ -959,10 +1029,28 @@ function draw() {
   document.getElementById('normal-section').style.display = showNormal ? '' : 'none';
   document.getElementById('simple-section').style.display = showSimple ? '' : 'none';
 
-  const directed = document.getElementById('chk-directed').checked;
-  if (showNormal) drawNormal(maze, path, nterm, bounds, directed);
+  const diagonal = document.getElementById('chk-diagonal').checked;
+  if (showNormal) drawNormal(maze, path, nterm, bounds, diagonal);
   if (showSimple) drawSimple(path, bounds);
 }
+
+/* ---- Debug helpers (console-only) ----
+ * debugcircle(x, y, r): stamp a red hollow circle at canvas CSS coords.
+ * debugclear(): erase all debug circles by redrawing the whole view.
+ */
+window.debugcircle = function (x, y, r) {
+  const canvas = document.getElementById('canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.save();
+  ctx.strokeStyle = '#ff00ff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, 2 * Math.PI);
+  ctx.stroke();
+  ctx.restore();
+};
+window.debugclear = function () { draw(); };
 
 /* Auto-split: if maze textarea contains "Path:", move that part to answer textarea */
 function splitMazeInput() {
@@ -1000,13 +1088,13 @@ function toggleVisibility() {
 document.getElementById('draw-btn').addEventListener('click', draw);
 document.getElementById('chk-normal').addEventListener('change', toggleVisibility);
 document.getElementById('chk-simple').addEventListener('change', toggleVisibility);
-document.getElementById('chk-directed').addEventListener('change', draw);
+document.getElementById('chk-diagonal').addEventListener('change', draw);
 document.getElementById('chk-step').addEventListener('change', draw);
 
 /* ---- localStorage persistence ---- */
 const STORAGE_KEY = 'repeated-maze-state';
 const TEXTAREA_IDS = ['maze-input', 'answer-input'];
-const CHECKBOX_IDS = ['chk-normal', 'chk-simple', 'chk-directed', 'chk-step', 'chk-darkmode'];
+const CHECKBOX_IDS = ['chk-normal', 'chk-simple', 'chk-diagonal', 'chk-step', 'chk-darkmode'];
 
 function applyDarkmode() {
   /* Toggle on <html> so the inline head script and this runtime toggle
