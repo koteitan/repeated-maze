@@ -78,7 +78,7 @@ body {
 }
 h1 { font-size: 20px; margin: 0 0 12px; }
 .fields { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
-.field { display: flex; flex-direction: column; }
+.field { display: flex; flex-direction: column; min-width: 0; max-width: 100%; }
 .field label { font-weight: bold; margin-bottom: 3px; font-size: 14px; }
 textarea {
   font-family: monospace;
@@ -89,16 +89,22 @@ textarea {
   background: var(--canvas-bg);
   color: var(--text);
 }
-#maze-input { width: 640px; height: 100px; }
-#answer-input { width: 640px; height: 50px; }
+#maze-input, #answer-input {
+  width: 640px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+#maze-input { height: 100px; }
+#answer-input { height: 50px; }
 button {
-  padding: 7px 22px;
+  padding: 5px 5px;
   font-size: 14px;
   cursor: pointer;
   background: var(--button-bg);
   color: var(--button-text);
   border: none;
   border-radius: 4px;
+  min-width: 90px;
 }
 button:hover { background: var(--button-bg-hover); }
 select {
@@ -110,6 +116,10 @@ select {
   color: var(--text);
 }
 select option { background: var(--canvas-bg); color: var(--text); }
+body.mobile-mode .pan-zoom-hint { display: block; margin-top: 2px; }
+/* Keep each checkbox and its caption on the same line; wrap between
+ * labels instead of inside them when the screen is narrow. */
+label:has(> input[type="checkbox"]) { display: inline-block; white-space: nowrap; }
 .legend { margin-top: 8px; font-size: 12px; color: var(--text-muted); }
 .legend span { margin-right: 14px; }
 .legend .swatch {

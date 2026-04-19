@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Repeated Maze Visualizer</title>
 <script>
 /* Apply the darkmode class to <html> before stylesheets render, so the
@@ -26,7 +27,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.16</span><!-- checkbox reorder, darkmode select, smaller junction dot --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.17</span><!-- mobile viewport fixes, compact button row, pan-zoom legend, mobile-mode layout --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -46,8 +47,8 @@ try {
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-darkmode"> darkmode</label>
 </div>
 <button id="draw-btn">Draw Maze</button>
-<button id="save-img-btn" style="margin-left: 6px;">Save Image</button>
-<button id="copy-url-btn" style="margin-left: 6px;">Copy Link</button>
+<button id="save-img-btn" style="margin-left: 1px;">Save Image</button>
+<button id="copy-url-btn" style="margin-left: 1px;">Copy Link</button>
 <label style="margin-left: 12px;">Preset: <select id="preset-select">
   <option value="">(select)</option>
   <option value="clear">clear</option>
@@ -56,11 +57,13 @@ try {
   <option value="md4">4th minsky doubling</option>
   <option value="md5">5th minsky doubling</option>
 </select></label>
+<span id="dbg-canvas-size" style="margin-left: 12px; font-size: 12px; color: var(--text-dim);"></span>
 <div id="normal-section">
   <div class="legend">
     <span><span class="swatch sw-path"></span>Path</span>
     <span><span class="swatch sw-start"></span>Start</span>
     <span><span class="swatch sw-goal"></span>Goal</span>
+    <span class="pan-zoom-hint" style="color:var(--text-dim);">Pan/zoom: mouse drag/wheel or swipe/pinch</span>
   </div>
   <div id="canvas-wrap" class="canvas-wrap"><canvas id="canvas"></canvas></div>
 </div>
@@ -86,6 +89,7 @@ const BASE_MARGIN = 100;
 /* Internal debug switches (no UI). Flip to false at release. */
 const DEBUG_SHOW_SUBBLOCK_GRID = false;
 const DEBUG_LOG_ANSWER_PATH = false;
+const DEBUG_SHOW_CANVAS_SIZE = false;
 
 /* Canvas pan/zoom viewport. Set by mouse handlers; setupCanvas uses
  * viewState when .userControlled is true, otherwise fits to path bounds. */
@@ -308,7 +312,13 @@ function setupCanvas(canvasId, wrapId, bounds) {
      * canvas stays visible without scrolling. */
     cssW = availW;
     const wrapTop = wrap.getBoundingClientRect().top;
-    cssH = Math.max(200, Math.floor(window.innerHeight - wrapTop - 20));
+    const availH = Math.max(200, Math.floor(window.innerHeight - wrapTop - 20));
+    /* Mobile fallback: when the remaining window height is too short for
+     * the maze to be usable, make the canvas square (= width) so the user
+     * can still see the grid, even if it overflows below the viewport. */
+    const isMobile = availH < 300;
+    cssH = isMobile ? cssW : availH;
+    document.body.classList.toggle('mobile-mode', isMobile);
     if (!viewState.userControlled) {
       const sCols = bounds.maxX - bounds.minX + 1;
       const seedZoom = cssW / (sCols * BASE_CELL);
@@ -354,6 +364,11 @@ function setupCanvas(canvasId, wrapId, bounds) {
   canvas.style.height = cssH + 'px';
   canvas.width = Math.round(cssW * dpr);
   canvas.height = Math.round(cssH * dpr);
+  if (isMain && DEBUG_SHOW_CANVAS_SIZE) {
+    const el = document.getElementById('dbg-canvas-size');
+    if (el) el.textContent = 'canvas: ' + Math.round(cssW) + ' x ' + Math.round(cssH)
+      + ' css, dpr=' + dpr + ', win=' + window.innerWidth + 'x' + window.innerHeight;
+  }
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.imageSmoothingEnabled = false;
