@@ -101,6 +101,15 @@ button {
   border-radius: 4px;
 }
 button:hover { background: var(--button-bg-hover); }
+select {
+  font-size: 14px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  background: var(--canvas-bg);
+  color: var(--text);
+}
+select option { background: var(--canvas-bg); color: var(--text); }
 .legend { margin-top: 8px; font-size: 12px; color: var(--text-muted); }
 .legend span { margin-right: 14px; }
 .legend .swatch {
