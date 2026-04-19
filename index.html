@@ -27,7 +27,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.17</span><!-- mobile viewport fixes, compact button row, pan-zoom legend, mobile-mode layout --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.18</span><!-- JS BFS solver + Solve Maze button, 2x2 mobile button grid --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -46,18 +46,21 @@ try {
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-step" checked> step</label>
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-darkmode"> darkmode</label>
 </div>
-<button id="draw-btn">Draw Maze</button>
-<button id="save-img-btn" style="margin-left: 1px;">Save Image</button>
-<button id="copy-url-btn" style="margin-left: 1px;">Copy Link</button>
-<label style="margin-left: 12px;">Preset: <select id="preset-select">
-  <option value="">(select)</option>
-  <option value="clear">clear</option>
-  <option value="cp6">6th counter pump</option>
-  <option value="md3">3rd minsky doubling</option>
-  <option value="md4">4th minsky doubling</option>
-  <option value="md5">5th minsky doubling</option>
-</select></label>
-<span id="dbg-canvas-size" style="margin-left: 12px; font-size: 12px; color: var(--text-dim);"></span>
+<div class="button-row">
+  <button id="draw-btn">Draw Maze</button>
+  <button id="solve-btn">Solve Maze</button>
+  <button id="save-img-btn">Save Image</button>
+  <button id="copy-url-btn">Copy Link</button>
+  <label class="preset-label">Preset: <select id="preset-select">
+    <option value="">(select)</option>
+    <option value="clear">clear</option>
+    <option value="cp6">6th counter pump</option>
+    <option value="md3">3rd minsky doubling</option>
+    <option value="md4">4th minsky doubling</option>
+    <option value="md5">5th minsky doubling</option>
+  </select></label>
+  <span id="dbg-canvas-size" style="font-size: 12px; color: var(--text-dim);"></span>
+</div>
 <div id="normal-section">
   <div class="legend">
     <span><span class="swatch sw-path"></span>Path</span>
@@ -1092,6 +1095,126 @@ function drawSimple(path, bounds) {
   }
 }
 
+/* ---- BFS Maze Solver (JS port of solver.c) ----
+ *
+ * Canonical state (x, y, dir, idx) with dir in {'E', 'N'}. A block's W[n]
+ * becomes canonical E[n] of its left neighbour; S[n] becomes canonical
+ * N[n] of the block below. Start = (0, 1, E, 0), Goal = (0, 1, E, 1).
+ */
+function toCanonical(bx, by, tdir, tidx) {
+  if (tdir === 'E') return { x: bx,     y: by,     dir: 'E', idx: tidx };
+  if (tdir === 'W') return { x: bx - 1, y: by,     dir: 'E', idx: tidx };
+  if (tdir === 'N') return { x: bx,     y: by,     dir: 'N', idx: tidx };
+  /* tdir === 'S' */  return { x: bx,     y: by - 1, dir: 'N', idx: tidx };
+}
+/* Build adjacency list tables from a parsed maze. Undirected ports (the
+ * "A-B" syntax) add both directions; directed ports keep the source
+ * orientation only. */
+function buildSolverIndex(maze) {
+  const normal = new Map();          /* srcKey "W2" -> [{dir, idx}, ...] */
+  const nx = new Map();              /* srcIdx     -> [dstIdx, ...]       */
+  const ny = new Map();
+  function addN(key, dst) {
+    if (!normal.has(key)) normal.set(key, []);
+    normal.get(key).push(dst);
+  }
+  for (const p of (maze.normal || [])) {
+    addN(p.src.dir + p.src.idx, p.dst);
+    if (!p.directed) addN(p.dst.dir + p.dst.idx, p.src);
+  }
+  function addE(map, si, di) {
+    if (!map.has(si)) map.set(si, []);
+    map.get(si).push(di);
+  }
+  for (const p of (maze.nx || [])) {
+    addE(nx, p.src.idx, p.dst.idx);
+    if (!p.directed) addE(nx, p.dst.idx, p.src.idx);
+  }
+  for (const p of (maze.ny || [])) {
+    addE(ny, p.src.idx, p.dst.idx);
+    if (!p.directed) addE(ny, p.dst.idx, p.src.idx);
+  }
+  return { normal, nx, ny };
+}
+function getSolverNeighbors(s, idx) {
+  const out = [];
+  if (s.dir === 'E') {
+    /* Block (s.x, s.y) — terminal E[s.idx] */
+    if (s.y > 0) {
+      if (s.x > 0) {
+        for (const d of (idx.normal.get('E' + s.idx) || [])) {
+          const ns = toCanonical(s.x, s.y, d.dir, d.idx);
+          if (ns.x >= 0 && ns.y >= 0) out.push(ns);
+        }
+      } else {
+        for (const di of (idx.nx.get(s.idx) || []))
+          out.push({ x: 0, y: s.y, dir: 'E', idx: di });
+      }
+    }
+    /* Block (s.x + 1, s.y) — terminal W[s.idx] */
+    const bx = s.x + 1;
+    if (bx > 0 && s.y > 0) {
+      for (const d of (idx.normal.get('W' + s.idx) || [])) {
+        const ns = toCanonical(bx, s.y, d.dir, d.idx);
+        if (ns.x >= 0 && ns.y >= 0) out.push(ns);
+      }
+    }
+  } else {
+    /* Block (s.x, s.y) — terminal N[s.idx] */
+    if (s.x > 0) {
+      if (s.y > 0) {
+        for (const d of (idx.normal.get('N' + s.idx) || [])) {
+          const ns = toCanonical(s.x, s.y, d.dir, d.idx);
+          if (ns.x >= 0 && ns.y >= 0) out.push(ns);
+        }
+      } else {
+        for (const di of (idx.ny.get(s.idx) || []))
+          out.push({ x: s.x, y: 0, dir: 'N', idx: di });
+      }
+    }
+    /* Block (s.x, s.y + 1) — terminal S[s.idx] */
+    const by = s.y + 1;
+    if (s.x > 0 && by > 0) {
+      for (const d of (idx.normal.get('S' + s.idx) || [])) {
+        const ns = toCanonical(s.x, by, d.dir, d.idx);
+        if (ns.x >= 0 && ns.y >= 0) out.push(ns);
+      }
+    }
+  }
+  return out;
+}
+/* BFS from (0,1,E,0) to (0,1,E,1). Returns an array of states along the
+ * shortest path, or null if unreachable within MAX_STATES. */
+function solveMaze(maze) {
+  const idx = buildSolverIndex(maze);
+  const start = { x: 0, y: 1, dir: 'E', idx: 0 };
+  const goal  = { x: 0, y: 1, dir: 'E', idx: 1 };
+  const keyOf = s => s.x + ',' + s.y + ',' + s.dir + s.idx;
+  const visited = new Set([keyOf(start)]);
+  const queue = [{ state: start, parent: -1 }];
+  const MAX_STATES = 20_000_000;
+  let goalIdx = -1;
+  for (let head = 0; head < queue.length && queue.length < MAX_STATES; head++) {
+    const cur = queue[head].state;
+    if (cur.x === goal.x && cur.y === goal.y && cur.dir === goal.dir && cur.idx === goal.idx) {
+      goalIdx = head; break;
+    }
+    for (const ns of getSolverNeighbors(cur, idx)) {
+      const k = keyOf(ns);
+      if (visited.has(k)) continue;
+      visited.add(k);
+      queue.push({ state: ns, parent: head });
+    }
+  }
+  if (goalIdx < 0) return null;
+  const path = [];
+  for (let i = goalIdx; i >= 0; i = queue[i].parent) path.unshift(queue[i].state);
+  return path;
+}
+function formatSolverPath(path) {
+  return path.map(s => '(' + s.x + ',' + s.y + ',' + s.dir + s.idx + ')').join(' -> ');
+}
+
 /* ---- Main draw ---- */
 
 function draw() {
@@ -1170,6 +1293,26 @@ document.getElementById('draw-btn').addEventListener('click', () => {
   viewState.userControlled = false;
   draw();
   saveState();
+});
+
+/* ---- Solve Maze: BFS to answer textarea ---- */
+document.getElementById('solve-btn').addEventListener('click', () => {
+  const maze = parseMaze(document.getElementById('maze-input').value);
+  const btn = document.getElementById('solve-btn');
+  const prev = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Solving...';
+  /* Defer to the next frame so the button state repaints before the
+   * (potentially slow) BFS starts. */
+  requestAnimationFrame(() => {
+    let path = null;
+    try { path = solveMaze(maze); } catch (e) { console.error('solver error:', e); }
+    btn.disabled = false; btn.textContent = prev;
+    if (!path) { alert('No solution found (or too large).'); return; }
+    document.getElementById('answer-input').value = formatSolverPath(path);
+    document.getElementById('chk-answer-path').checked = true;
+    draw();
+    saveState();
+  });
 });
 
 /* ---- Canvas pan (drag) and zoom (wheel) ---- */
