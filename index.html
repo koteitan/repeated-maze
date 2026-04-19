@@ -26,7 +26,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.12</span><!-- compressed mazez/answerz URL params --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.13</span><!-- fixed 4x4 default viewport anchored to origin, responsive canvas height --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -275,6 +275,14 @@ function computeBounds(path) {
   return { minX: 0, maxX: 3, minY: 0, maxY: 3 };
 }
 
+/* Default visible window for the main (normal) view: always the 4x4
+ * blocks (0,0)..(3,3). The origin (bottom-left of block (0,0)) is pinned
+ * to the canvas's bottom-left corner by setupCanvas; user can pan/zoom
+ * to navigate anywhere from there. */
+function computeDefaultNormalBounds(_path) {
+  return { minX: 0, maxX: 3, minY: 0, maxY: 3 };
+}
+
 /* ---- Setup canvas with grid and axis labels ---- */
 
 function setupCanvas(canvasId, wrapId, bounds) {
@@ -286,13 +294,29 @@ function setupCanvas(canvasId, wrapId, bounds) {
   let minX, maxX, minY, maxY, scale, cssW, cssH;
   let viewCenterPx = null;          /* { x, y } pixel at viewState.cx/cy */
 
-  if (isMain && viewState.userControlled) {
-    /* User-driven pan/zoom: fixed square canvas, viewState controls where
-     * the view is centred and how zoomed. Only the blocks that intersect
-     * the visible rectangle are rendered. */
-    scale = viewState.zoom;
+  if (isMain) {
+    /* Main canvas always runs in viewport mode. Canvas CSS width fills
+     * the container; height follows the remaining window height so the
+     * canvas stays visible without scrolling. */
     cssW = availW;
-    cssH = availW;
+    const wrapTop = wrap.getBoundingClientRect().top;
+    cssH = Math.max(200, Math.floor(window.innerHeight - wrapTop - 20));
+    if (!viewState.userControlled) {
+      const sCols = bounds.maxX - bounds.minX + 1;
+      const seedZoom = cssW / (sCols * BASE_CELL);
+      const seedCell = BASE_CELL * seedZoom;
+      viewState = {
+        cx: (bounds.minX + bounds.maxX + 1) / 2,
+        /* cy pinned so bpos(_, bounds.minY).y + CELL === cssH:
+         *   cssH/2 + (cy - bounds.minY) * CELL === cssH - CELL
+         *   cy = bounds.minY + cssH/(2*CELL) - 1
+         */
+        cy: bounds.minY + cssH / (2 * seedCell) - 1,
+        zoom: seedZoom,
+        userControlled: false,
+      };
+    }
+    scale = viewState.zoom;
     const CELL_tmp = BASE_CELL * scale;
     const halfColBlocks = (cssW / 2) / CELL_tmp;
     const halfRowBlocks = (cssH / 2) / CELL_tmp;
@@ -302,7 +326,7 @@ function setupCanvas(canvasId, wrapId, bounds) {
     maxY = Math.ceil(viewState.cy + halfRowBlocks) + 1;
     viewCenterPx = { x: cssW / 2, y: cssH / 2 };
   } else {
-    /* Auto-fit to path bounds (the original behaviour). */
+    /* Non-main canvases (e.g. future overlays): keep the old auto-fit. */
     minX = bounds.minX; maxX = bounds.maxX;
     minY = bounds.minY; maxY = bounds.maxY;
     const cols = maxX - minX + 1;
@@ -311,15 +335,6 @@ function setupCanvas(canvasId, wrapId, bounds) {
     scale = Math.min(1, availW / idealW);
     cssW = BASE_MARGIN * 2 * scale + cols * BASE_CELL * scale;
     cssH = BASE_MARGIN * 2 * scale + rows * BASE_CELL * scale;
-    if (isMain) {
-      /* Seed viewState so mouse interactions start from the auto-fit. */
-      viewState = {
-        cx: (minX + maxX) / 2,
-        cy: (minY + maxY) / 2,
-        zoom: scale,
-        userControlled: false,
-      };
-    }
   }
 
   const CELL = BASE_CELL * scale;
@@ -1068,7 +1083,11 @@ function draw() {
   document.getElementById('simple-section').style.display = showSimple ? '' : 'none';
 
   const diagonal = document.getElementById('chk-diagonal').checked;
-  if (showNormal) drawNormal(maze, path, nterm, bounds, diagonal);
+  /* drawNormal starts at a fixed 4x4 default window (user can pan/zoom
+   * from there); drawSimple keeps the full-path bounds so the xy-only
+   * overview still shows the whole path. */
+  const normalBounds = computeDefaultNormalBounds(path);
+  if (showNormal) drawNormal(maze, path, nterm, normalBounds, diagonal);
   if (showSimple) drawSimple(path, bounds);
 }
 
@@ -1406,8 +1425,10 @@ if (typeof ResizeObserver !== 'undefined') {
   ro.observe(document.getElementById('canvas-wrap').parentElement);
 } else {
   window.addEventListener('load', () => requestAnimationFrame(draw));
-  window.addEventListener('resize', onResize);
 }
+/* Window height changes (e.g. browser resize, devtools open) don't
+ * always fire ResizeObserver on the container — redraw on resize too. */
+window.addEventListener('resize', () => draw());
 </script>
 </body>
 </html>
