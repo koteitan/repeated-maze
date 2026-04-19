@@ -26,7 +26,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.14</span><!-- touch swipe/pinch for mobile pan-zoom --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.15</span><!-- preset dropdown, preset query param, graph-suffixed checkbox captions --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -38,8 +38,8 @@ try {
   </div>
 </div>
 <div style="margin-bottom: 8px;">
-  <label><input type="checkbox" id="chk-normal" checked> normal</label>
-  <label style="margin-left: 12px;"><input type="checkbox" id="chk-simple"> x,y only</label>
+  <label><input type="checkbox" id="chk-normal" checked> normal graph</label>
+  <label style="margin-left: 12px;"><input type="checkbox" id="chk-simple"> x,y only graph</label>
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-diagonal"> diagonal</label>
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-step" checked> step</label>
   <label style="margin-left: 12px;"><input type="checkbox" id="chk-answer-path" checked> answer path</label>
@@ -48,6 +48,14 @@ try {
 <button id="draw-btn">Draw Maze</button>
 <button id="save-img-btn" style="margin-left: 6px;">Save Image</button>
 <button id="copy-url-btn" style="margin-left: 6px;">Copy Link</button>
+<label style="margin-left: 12px;">Preset: <select id="preset-select">
+  <option value="">(select)</option>
+  <option value="clear">clear</option>
+  <option value="cp6">6th counter pump</option>
+  <option value="md3">3rd minsky doubling</option>
+  <option value="md4">4th minsky doubling</option>
+  <option value="md5">5th minsky doubling</option>
+</select></label>
 <div id="normal-section">
   <div class="legend">
     <span><span class="swatch sw-path"></span>Path</span>
@@ -1259,6 +1267,51 @@ document.getElementById('draw-btn').addEventListener('click', () => {
   canvas.style.touchAction = 'none';
 })();
 
+/* ---- Preset dropdown (file-backed mazes under ./maze/) ---- */
+const PRESETS = {
+  clear: null,
+  cp6:  'maze/counter-pump/cp6.txt',
+  md3:  'maze/minsky-doubling/md3.txt',
+  md4:  'maze/minsky-doubling/md4.txt',
+  md5:  'maze/minsky-doubling/md5.txt',
+};
+async function loadPreset(key) {
+  const mazeEl = document.getElementById('maze-input');
+  const answerEl = document.getElementById('answer-input');
+  if (key === 'clear') {
+    mazeEl.value = '';
+    answerEl.value = '';
+  } else if (PRESETS[key]) {
+    try {
+      const res = await fetch(PRESETS[key]);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      mazeEl.value = await res.text();
+      answerEl.value = '';
+      splitMazeInput();
+    } catch (e) {
+      console.error('preset "' + key + '" failed to load:', e);
+      return;
+    }
+  } else {
+    return;
+  }
+  /* Reflect the loaded preset in the dropdown so both query-param and
+   * user-driven loads keep the select in sync with the current state. */
+  const sel = document.getElementById('preset-select');
+  if (sel && [...sel.options].some(o => o.value === key)) sel.value = key;
+  /* Reset viewport and turn off step/answer-path per preset rule. */
+  viewState.userControlled = false;
+  document.getElementById('chk-answer-path').checked = false;
+  document.getElementById('chk-step').checked = false;
+  saveState();
+  draw();
+}
+document.getElementById('preset-select').addEventListener('change', (e) => {
+  const key = e.target.value;
+  if (!key) return;
+  loadPreset(key);
+});
+
 /* ---- Save Image (canvas -> maze.png) ---- */
 document.getElementById('save-img-btn').addEventListener('click', () => {
   const canvas = document.getElementById('canvas');
@@ -1436,6 +1489,13 @@ if (/(^|[?&])reset(=|&|$)/.test(window.location.search)) {
 async function applyQueryParams() {
   let params;
   try { params = new URLSearchParams(window.location.search); } catch (e) { return; }
+  /* preset=<key> takes over the whole text/view state: load the file,
+   * clear viewport, force step/answer-path off — then return so the
+   * later text/pan/zoom overrides from the URL don't clobber it. */
+  if (params.has('preset')) {
+    await loadPreset(params.get('preset'));
+    return;
+  }
   /* Textareas: prefer compressed *z param (new, short URLs) over the
    * plain one (old v2.11 format stays accepted). */
   const textMap = { maze: 'maze-input', answer: 'answer-input' };
