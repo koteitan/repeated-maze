@@ -1,66 +1,121 @@
 #!/usr/bin/env python3
-"""Generate md[N].hs for hs2maze: Minsky Doubling Machine with N cycles of y ↦ 2y+1.
+"""make-minsky-doubling.py — Generate mdN.hs, a Minsky 2-counter doubling machine.
 
-Usage: python3 make-minsky-doubling.py N
-  Writes maze/minsky-doubling/mdN.hs to stdout.
+Each cycle's doubling subroutine takes (x, y) = (0, Y) at pc=S, runs:
+    repeat: x:=x+2; y:=y-1            until y=0     (doubling phase)
+    repeat: x:=x-1; y:=y+1            until x=0     (transfer phase)
+so y at end of cycle = 2*Y + 2 (the extra +2 comes from one extra "INC x"
+pair after y already hit 0, plus one extra "INC y" past x=0 in the
+transfer).  After K cycles the y register goes
+    1 → 4 → 10 → 22 → 46 → ... = 3·2^i - 2.
+
+The maze-level interpretation may differ by the standard block-y vs
+y-register off-by-one of hs2maze; that's a property of the maze
+encoding, not of this generator.
+
+Usage: python3 make-minsky-doubling.py N [--test] > mdN.hs
 """
 import sys
 
+VERSION = "1.1"
 
-def make(k):
+USAGE = """\
+Usage: make-minsky-doubling.py N [--test]
+       make-minsky-doubling.py --help | -h
+       make-minsky-doubling.py --version | -V
+
+Generate mdN.hs, a 2-register Minsky-style doubling machine that runs
+N cycles of a "INC-x-twice-while-DEC-y, then transfer x→y" subroutine.
+The output is a tail-recursive `md :: (Int, Int, Int) -> ...` definition
+with state slots (x, y, pc), starting at (0, 1, 0) and halting at
+(0, 0, 1).  Zero-branch rules (`(x, 0, ...)` and `(0, y, ...)`) are
+emitted, so feeding the file directly to hs2maze.py auto-generates the
+required nx / ny / bridge ports.
+
+Internally each cycle does:
+  S:   x+1                 -- inc x, part 1 of doubling
+  S+1: x+1                 -- inc x, part 2 of doubling
+  S+2: y-1 → S             -- dec y, loop back; ny: y=0 → S+3
+  S+3: x-1 → S+4           -- dec x, transfer x→y; nx: x=0 → next cycle
+  S+4: y+1 → S+3           -- inc y, transfer loop
+plus a final pc=D drain that DECs y until y=0, then ny → pc=1 (HALT).
+
+At the Haskell-register level, each cycle maps Y ↦ 2Y+2, so the
+y-register sequence is 1 → 4 → 10 → 22 → ... = 3·2^i − 2.
+
+Positional argument:
+  N             number of doubling cycles (N >= 1).  Path length
+                grows as O(2^N).
+
+Options:
+  --test        emit a self-contained runnable Haskell with an extra
+                witness register o counting productive doubling-phase
+                DEC y operations (= 3·2^N − 2N − 3).  The HALT rule
+                returns a bare tuple, and a `main :: IO ()` prints
+                the final state.  Run via `runghc FILE.hs`; output is
+                `(0,0,3·2^N − 2N − 3,1)` on a single line.
+  -h, --help    show this message and exit.
+  -V, --version show the script version (currently v{version}) and
+                exit.
+""".format(version=VERSION)
+
+
+def make(k, test=False):
+    # Haskell-register-level y sequence: y_0 = 1, y_{i+1} = 2*y_i + 2.
     y_seq = [1]
-    for i in range(k):
-        y_seq.append(2 * y_seq[-1] + 1)
+    for _ in range(k):
+        y_seq.append(2 * y_seq[-1] + 2)
+    expected_o = sum(y_seq[:-1])  # productive DEC y in doubling phases
 
-    # Compute nx/ny/bridge ports
-    ns = 0
-    ns_ym = []  # N/S index for each cycle's y-1
-    ns_yp = []  # N/S index for each cycle's y+1
-    for ci in range(k):
-        ns_ym.append(ns); ns += 1
-        ns_yp.append(ns); ns += 1
-    ns_drain = ns; ns += 1
-    ns_exits = []
-    for ci in range(k):
-        ns_exits.append(ns); ns += 1
-    ns_drain_exit = ns; ns += 1
+    if test:
+        sig = "md :: (Int, Int, Int, Int) -> (Int, Int, Int, Int)"
+        start = "(0, 1, 0, 0)"
+        goal = f"(0, 0, {expected_o}, 1)"
+    else:
+        sig = "md :: (Int, Int, Int) -> (Int, Int, Int)"
+        start = "(0, 1, 0)"
+        goal = "(0, 0, 1)"
 
-    ny_ports = []
-    nx_ports = []
-    bridge_ports = []
-    for ci in range(k):
-        xfer_pc = 4 if ci == 0 else 5 * ci + 4
-        ny_ports.append(f"N{ns_ym[ci]}-N{ns_exits[ci]}")
-        bridge_ports.append(f"S{ns_exits[ci]}-W{xfer_pc}")
-        next_start = 5 * (ci + 1) + 1 if ci < k - 1 else 5 * k + 1
-        nx_ports.append(f"E{xfer_pc}-E{next_start}")
-    ny_ports.append(f"N{ns_drain}-N{ns_drain_exit}")
-    bridge_ports.append(f"S{ns_drain_exit}-W1")
+    def rule(lhs_x, lhs_y, rhs_x, rhs_y, pc_lhs, pc_rhs, inc_o=False, halt=False):
+        """If halt=True, RHS is emitted as a bare tuple (true Haskell base case)."""
+        if test:
+            o_rhs = "o+1" if inc_o else "  o"
+            lhs = f"{lhs_x}, {lhs_y}, o"
+            rhs = f"{rhs_x}, {rhs_y}, {o_rhs}"
+        else:
+            lhs = f"{lhs_x}, {lhs_y}"
+            rhs = f"{rhs_x}, {rhs_y}"
+        rhs_prefix = "" if halt else "md "
+        return f"md ({lhs}, {pc_lhs:4d}) = {rhs_prefix}({rhs}, {pc_rhs:4d})"
 
-    # Header
     y_chain = ' → '.join(str(v) for v in y_seq)
     lines = []
-    lines.append(f"-- md{k}.hs: Minsky Doubling Machine (k={k} cycles of y ↦ 2y+1)")
-    lines.append(f"-- Input for hs2maze.py (generates normal block ports only)")
+    lines.append(f"-- md{k}.hs: Minsky Doubling Machine (k={k} cycles, register-level Y ↦ 2Y+2)")
+    lines.append(f"-- Start: {start}. Goal: {goal}.")
+    lines.append(
+        "-- Generated by make-minsky-doubling.py"
+        + (" --test" if test else "")
+        + ".  Feed through hs2maze.py to obtain the maze."
+    )
+    if test:
+        lines.append(
+            f"-- Test mode: register o counts productive DEC y in doubling phases; "
+            f"expect o = 3·2^{k} − 2·{k} − 3 = {expected_o}."
+        )
     lines.append(f"--")
-    lines.append(f"-- Computation: y = {y_chain}, then drain y to 0.")
-    lines.append(f"-- Result: 2^({k}+1) - 1 = {y_seq[-1]}")
+    lines.append(f"-- y-register sequence: {y_chain}, then drain y to 0.")
+    lines.append(f"-- Final pre-drain y = 3·2^{k} − 2 = {y_seq[-1]}")
     lines.append(f"--")
     lines.append(f"-- Structure per cycle (start at pc=S):")
-    lines.append(f"--   S:   x+1       (inc x, part 1 of doubling)")
-    lines.append(f"--   S+1: x+1       (inc x, part 2 of doubling)")
-    lines.append(f"--   S+2: y-1 → S   (dec y, loop back; ny fires at y=0)")
-    lines.append(f"--   S+3: x-1       (dec x, transfer x→y)")
-    lines.append(f"--   S+4: y+1 → S+3 (inc y, transfer loop; nx fires at x=0)")
-    lines.append(f"--")
-    lines.append(f"-- Additional ports needed (not generated by hs2maze):")
-    lines.append(f"--   ny: {', '.join(ny_ports)}")
-    lines.append(f"--   nx: {', '.join(nx_ports)}")
-    lines.append(f"--   normal (bridge): {', '.join(bridge_ports)}")
-    lines.append(f"--")
-    lines.append(f"-- Usage: python3 hs2maze.py md{k}.hs")
-    lines.append(f"")
-    lines.append(f"md :: (Int, Int, Int) -> (Int, Int, Int)")
+    lines.append(f"--   S:   x+1                 (inc x, part 1 of doubling)")
+    lines.append(f"--   S+1: x+1                 (inc x, part 2 of doubling)")
+    lines.append(f"--   S+2: y-1 → S; ny: y=0 → S+3")
+    lines.append(f"--   S+3: x-1 → S+4; nx: x=0 → next-S")
+    lines.append(f"--   S+4: y+1 → S+3")
+    lines.append(f"-- Drain (pc=D): y-1 → D; ny: y=0 → 1 (HALT)")
+    lines.append("")
+
+    lines.append(sig)
 
     # Cycles
     for ci in range(k):
@@ -70,32 +125,59 @@ def make(k):
         else:
             S = 5 * ci + 1
             pcs = [S, S+1, S+2, S+3, S+4]
-        lines.append(f"")
-        lines.append(f"-- Cycle {ci} (y ↦ 2y+1)")
-        lines.append(f"md (x, y, {pcs[0]}) = md (x+1, y,   {pcs[1]})")
-        lines.append(f"md (x, y, {pcs[1]}) = md (x+1, y,   {pcs[2]})")
-        lines.append(f"md (x, y, {pcs[2]}) = md (x,   y-1, {pcs[0]})")
-        lines.append(f"md (x, y, {pcs[3]}) = md (x-1, y,   {pcs[4]})")
-        lines.append(f"md (x, y, {pcs[4]}) = md (x,   y+1, {pcs[3]})")
+        next_S = 5 * (ci + 1) + 1 if ci < k - 1 else 5 * k + 1  # next cycle or drain
+        lines.append("")
+        lines.append(f"-- Cycle {ci} (Y={y_seq[ci]} → {y_seq[ci+1]}); xfer at pc={pcs[3]}, exit to pc={next_S}")
+        lines.append(rule("x", "y", "x+1", "  y", pcs[0], pcs[1]))
+        lines.append(rule("x", "y", "x+1", "  y", pcs[1], pcs[2]))
+        # Zero-branch rules MUST precede their catch-all peer so Haskell's
+        # top-down pattern match picks the literal-0 case before the var case.
+        lines.append(rule("x", "0", "  x", "  0", pcs[2], pcs[3]))             # ny zero-branch
+        lines.append(rule("x", "y", "  x", "y-1", pcs[2], pcs[0], inc_o=True))
+        lines.append(rule("0", "y", "  0", "  y", pcs[3], next_S))             # nx zero-branch
+        lines.append(rule("x", "y", "x-1", "  y", pcs[3], pcs[4]))
+        lines.append(rule("x", "y", "  x", "y+1", pcs[4], pcs[3]))
 
     # Drain
     D = 5 * k + 1
-    lines.append(f"")
-    lines.append(f"-- Drain (y → 0)")
-    lines.append(f"md (x, y, {D}) = md (x,   y-1, {D})")
+    lines.append("")
+    lines.append(f"-- Drain (pc={D}): DEC y to 0, then ny → HALT (bare-tuple base case)")
+    lines.append(rule("x", "0", "  x", "  0", D, 1, halt=True))                 # ny drain → HALT base case
+    lines.append(rule("x", "y", "  x", "y-1", D, D))
+
+    if test:
+        lines.append("")
+        lines.append(f"-- main: print the final state from {start}.  Expected: {goal}.")
+        lines.append("main :: IO ()")
+        lines.append(f"main = print (md {start})")
 
     return '\n'.join(lines) + '\n'
 
 
 def main():
-    if len(sys.argv) != 2:
-        print(f"Usage: {sys.argv[0]} N", file=sys.stderr)
+    args = sys.argv[1:]
+    if any(a in ("-h", "--help") for a in args):
+        print(USAGE, end="")
+        return
+    if any(a in ("-V", "--version") for a in args):
+        print(f"make-minsky-doubling.py v{VERSION}")
+        return
+    test = False
+    if "--test" in args:
+        test = True
+        args.remove("--test")
+    if len(args) != 1:
+        print(USAGE, end="", file=sys.stderr)
         sys.exit(1)
-    k = int(sys.argv[1])
-    if k < 1:
+    try:
+        n = int(args[0])
+    except ValueError:
+        print(f"N must be an integer (got {args[0]!r})", file=sys.stderr)
+        sys.exit(1)
+    if n < 1:
         print("N must be >= 1", file=sys.stderr)
         sys.exit(1)
-    print(make(k), end='')
+    print(make(n, test=test), end='')
 
 
 if __name__ == '__main__':

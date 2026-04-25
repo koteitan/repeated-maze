@@ -19,9 +19,9 @@ With --test, an extra output register `o` is appended (4 registers + pc = 5 slot
 """
 import sys
 
-VERSION = "1.0"
+VERSION = "1.1"
 
-VERSION_TAG = "v1.0"
+VERSION_TAG = "v1.1"
 
 USAGE = """\
 Usage: make-cp3.py N [--test]
@@ -45,12 +45,11 @@ Positional argument:
                 DEC z exactly N^3 times before HALT.
 
 Options:
-  --test        emit a self-contained Haskell program with an extra
-                output register o (= N^3 at HALT), a non-recursive
-                cp3step mirror of every rule, and a `main :: IO ()`
-                driver that traces every step.  Run the file directly
-                via `runghc FILE.hs`; the final HALT line confirms
-                o = N^3.
+  --test        emit a self-contained runnable Haskell with an extra
+                output register o.  The HALT rule returns a bare
+                tuple, and a `main :: IO ()` prints the final state.
+                Run via `runghc FILE.hs`; output is `(0,0,0,N^3,1)`
+                on a single line, confirming o = N^3.
   -h, --help    show this message and exit.
   -V, --version show the script version (currently {tag}) and exit.
 """.format(tag=VERSION_TAG)
@@ -69,27 +68,25 @@ def make(n, test=False):
     if test:
         # 5-slot form: (x, y, z, o, pc).  `o` is the counting witness register.
         sig = "cp3 :: (Int, Int, Int, Int, Int) -> (Int, Int, Int, Int, Int)"
-        step_sig = "cp3step :: (Int, Int, Int, Int, Int) -> (Int, Int, Int, Int, Int)"
         start = "(0, 1, 0, 0, 0)"
-        goal = f"(0, 1, 0, {n**3}, 1)"
+        goal = f"(0, 0, 0, {n**3}, 1)"
     else:
         sig = "cp3 :: (Int, Int, Int, Int) -> (Int, Int, Int, Int)"
-        step_sig = None
         start = "(0, 1, 0, 0)"
-        goal = "(0, 1, 0, 1)"
+        goal = "(0, 0, 0, 1)"
 
-    step_rules = []  # one-step (non-recursive) mirror of cp3, only used in test mode.
-
-    def rule(lhs_slots, rhs_slots, pc_lhs, pc_rhs):
-        """Format one cp3 rule; pads `o` slot with `o` (unchanged) when test=True."""
+    def rule(lhs_slots, rhs_slots, pc_lhs, pc_rhs, halt=False):
+        """Format one cp3 rule; pads `o` slot with `o` (unchanged) when test=True.
+        If halt=True, emit RHS as a bare tuple (no `cp3` prefix) — true Haskell
+        base case usable directly under runghc."""
         if test:
             lhs = ", ".join(lhs_slots + ["o"])
             rhs = ", ".join(rhs_slots + ["  o"])
-            step_rules.append(f"cp3step ({lhs}, {pc_lhs:4d}) = ({rhs}, {pc_rhs:4d})")
         else:
             lhs = ", ".join(lhs_slots)
             rhs = ", ".join(rhs_slots)
-        return f"cp3 ({lhs}, {pc_lhs:4d}) = cp3 ({rhs}, {pc_rhs:4d})"
+        rhs_prefix = "" if halt else "cp3 "
+        return f"cp3 ({lhs}, {pc_lhs:4d}) = {rhs_prefix}({rhs}, {pc_rhs:4d})"
 
     out = []
     out += [
@@ -106,9 +103,6 @@ def make(n, test=False):
         f"-- Inner  (pc={p_inner}): z=0 → DEC y, goto middle, else DEC z self-loop.",
         "",
     ]
-    if test:
-        out.append("import qualified System.IO")
-        out.append("")
     out += [
         sig,
         "",
@@ -150,39 +144,19 @@ def make(n, test=False):
     if test:
         # Inner DEC z self-loop: also INC o.
         out.append(f"cp3 (x, y, z, o, {p_inner:4d}) = cp3 (  x,   y, z-1, o+1, {p_inner:4d})")
-        step_rules.append(f"cp3step (x, y, z, o, {p_inner:4d}) = (  x,   y, z-1, o+1, {p_inner:4d})")
     else:
         out.append(rule(["x", "y", "z"], ["  x", "  y", "z-1"], p_inner, p_inner))
     out += [
         "",
-        f"-- HALT (pc={halt_pc}): noop to pc=1",
-        rule(["x", "y", "z"], ["  x", "  y", "  z"], halt_pc, 1),
+        f"-- HALT (pc={halt_pc}): bare-tuple base case for pc=1, no recursive call",
+        rule(["x", "y", "z"], ["  x", "  y", "  z"], halt_pc, 1, halt=True),
     ]
     if test:
-        # Self-contained `runghc`-friendly driver: trace every step until pc=1.
-        # cp3step mirrors cp3 but without the recursive call, so the driver can
-        # iterate one step at a time and check pc==1 between calls.
         out += [
             "",
-            "-- cp3step: same rules as cp3, but each RHS is the bare tuple",
-            "-- (no recursive call) so `main` below can drive one step at a time.",
-            step_sig,
-        ]
-        out += step_rules
-        out += [
-            "",
-            "-- main: print every (x, y, z, o, pc) state until pc reaches 1.",
+            f"-- main: print the final state from {start}.  Expected: {goal}.",
             "main :: IO ()",
-            "main = do",
-            "  System.IO.hSetBuffering System.IO.stdout System.IO.LineBuffering",
-            f"  loop 0 {start}",
-            "  where",
-            "    loop :: Int -> (Int, Int, Int, Int, Int) -> IO ()",
-            "    loop k s@(_, _, _, _, pc) = do",
-            "      putStrLn (show k ++ \" \" ++ show s)",
-            "      if pc == 1",
-            "        then putStrLn (\"HALT \" ++ show k ++ \" \" ++ show s)",
-            "        else loop (k + 1) (cp3step s)",
+            f"main = print (cp3 {start})",
         ]
     return "\n".join(out) + "\n"
 
