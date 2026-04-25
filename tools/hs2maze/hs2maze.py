@@ -43,7 +43,7 @@ import re
 import sys
 
 
-VERSION = "0.1"
+VERSION = "0.2"
 
 HELP_TEXT = """hs2maze v{version} — Haskell state machine → repeated-maze converter.
 
@@ -81,10 +81,15 @@ def parse_file(text):
     """Parse Haskell-style function definitions.
     Returns list of (pc_src, dx, dy, pc_dst, zero_branch),
     where zero_branch is None, 'x', or 'y'.
+
+    Raises ValueError on an immediate-assignment RHS (literal in a slot
+    that captures any value), since hs2maze cannot emit `r := k` directly.
+    The only allowed (literal-LHS, literal-RHS) pair is (0, 0), the
+    zero-branch passthrough used to mark nx / ny rules.
     """
     transitions = []
-    for line in text.splitlines():
-        line = line.split('--')[0].strip()
+    for line_no, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.split('--')[0].strip()
         if not line or '::' in line:
             continue
         if '=' not in line:
@@ -100,6 +105,20 @@ def parse_file(text):
         rx = parse_expr(rhs_m.group(1))
         ry = parse_expr(rhs_m.group(2))
         rpc = parse_expr(rhs_m.group(3))
+        # Reject immediate assignment: a literal in the RHS slot when the
+        # corresponding LHS does not also pin that slot to the same literal 0.
+        for slot, lp, rp in (("x", lx, rx), ("y", ly, ry)):
+            rhs_is_lit = rp[0] is None
+            zero_passthrough = (
+                rhs_is_lit and lp[0] is None and lp[1] == 0 and rp[1] == 0
+            )
+            if rhs_is_lit and not zero_passthrough:
+                raise ValueError(
+                    f"line {line_no}: immediate assignment "
+                    f"{slot}:={rp[1]} is not supported by hs2maze "
+                    f"(rewrite via INC/DEC chains, or compile through "
+                    f"nd-to-2d.py first)"
+                )
         pc_src = lpc[1]
         pc_dst = rpc[1]
         # Detect literal-0 LHS as zero-branch marker.
@@ -259,7 +278,11 @@ def main():
     else:
         text = sys.stdin.read()
 
-    transitions = parse_file(text)
+    try:
+        transitions = parse_file(text)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(2)
     if not transitions:
         print("Error: no transitions found", file=sys.stderr)
         sys.exit(1)
