@@ -30,9 +30,12 @@ RHS slot expressions:
     `_`                 - (LHS-only; unsupported in RHS; error)
     PC slot must be an integer literal. `-1` indicates HALT as well.
 
-Usage (parser-only so far):
-    python3 nd-to-2d.py input.hs           # dump parsed rules
-    python3 nd-to-2d.py input.hs --ast     # same as above, more verbose
+Usage:
+    python3 nd-to-2d.py input.hs           # compile to 2-register Haskell
+    python3 nd-to-2d.py input.hs --parse   # dump parsed rules instead
+    python3 nd-to-2d.py input.hs --ast     # same as --parse, more verbose
+    python3 nd-to-2d.py                    # read source from stdin
+    python3 nd-to-2d.py -                  # same as above (explicit dash)
 """
 
 from __future__ import annotations
@@ -41,6 +44,33 @@ import re
 import sys
 from dataclasses import dataclass
 from typing import List, Optional, Union
+
+
+VERSION = "0.1"
+
+HELP_TEXT = """\
+Usage: nd-to-2d.py [FILE] [--parse | --ast]
+       nd-to-2d.py --help | -h
+       nd-to-2d.py --version | -V
+
+Compile an n-register Minsky-style Haskell state machine into a
+2-register Gödel-encoded one suitable for hs2maze.py.  Reads the input
+from FILE, or from stdin if FILE is omitted or set to `-`.  Writes the
+compiled 2-register Haskell to stdout; a one-line summary of the
+generated equation counts is printed to stderr.
+
+Modes:
+  (default)     compile and emit 2-register Haskell on stdout.
+  --parse       skip compilation; pretty-print each parsed rule as a
+                single line per rule.
+  --ast         like --parse, but also dumps the AST node type and
+                value of every LHS pattern and RHS expression slot
+                (debug aid for the parser).
+
+Other options:
+  -h, --help    show this message and exit.
+  -V, --version show the script version (currently v{version}) and exit.
+""".format(version=VERSION)
 
 
 # ---------------------------------------------------------------------------
@@ -688,18 +718,30 @@ class Compiler:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    if len(sys.argv) < 2:
-        print(__doc__, file=sys.stderr)
-        sys.exit(1)
     args = sys.argv[1:]
-    path = args[0]
+    if any(a in ("-h", "--help") for a in args):
+        print(HELP_TEXT, end="")
+        return
+    if any(a in ("-V", "--version") for a in args):
+        print(f"nd-to-2d.py v{VERSION}")
+        return
+
     mode = "compile"
     if "--parse" in args or "--ast" in args:
         mode = "parse"
     verbose = "--ast" in args
+    flag_set = {"--parse", "--ast"}
+    positional = [a for a in args if a not in flag_set]
 
-    with open(path, "r") as f:
-        text = f.read()
+    if len(positional) > 1:
+        print(HELP_TEXT, end="", file=sys.stderr)
+        sys.exit(1)
+
+    if not positional or positional[0] == "-":
+        text = sys.stdin.read()
+    else:
+        with open(positional[0], "r") as f:
+            text = f.read()
 
     try:
         prog = parse_program(text)
