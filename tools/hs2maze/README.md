@@ -1,4 +1,4 @@
-[Japanese](README-ja.md) | **English**
+[← Back](../README.md) | [English](README.md) | [Japanese](README-ja.md)
 
 # hs2maze — State Machine to Maze Converter
 

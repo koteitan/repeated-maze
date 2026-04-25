@@ -22,7 +22,7 @@ maze where all normal blocks have identical ports.
 
 ```bash
 python3 make_penta.py [initial_a] > penta.hs
-python3 ../hs2maze/hs2maze.py penta.hs > penta.maze
+python3 ../../tools/hs2maze/hs2maze.py penta.hs > penta.maze
 # Then manually append nx / ny / bridge ports (listed as comments in penta.hs).
 ```
 

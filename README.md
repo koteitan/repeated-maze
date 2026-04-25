@@ -1,4 +1,4 @@
-[Japanese](README-ja.md) | **English**
+[English](README.md) | [Japanese](README-ja.md)
 
 # Repeated Maze
 
@@ -18,7 +18,7 @@ A "repeated maze" consists of identical blocks tiled across an infinite 2D grid.
     - [nterm=6 Example](maze/counter-pump/6.md) — Counter pump with 6 terminals per side (path length 257)
   - [Minsky Doubling Machine](maze/minsky-doubling/README.md) — Exponential path length O(2^{nterm/12}) via register machine encoding
     - [k=5 Example](maze/minsky-doubling/5.md) — 5-iteration doubling machine (662 steps)
-  - [hs2maze](maze/hs2maze/README.md) — Converter from Haskell-style state machine definitions to maze strings
+  - [hs2maze](tools/hs2maze/README.md) — Converter from Haskell-style state machine definitions to maze strings
 
 ## Building
 

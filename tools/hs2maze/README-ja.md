@@ -1,4 +1,4 @@
-**Japanese** | [English](README.md)
+[← Back](../README-ja.md) | [English](README.md) | [Japanese](README-ja.md)
 
 # hs2maze — ステートマシンから迷路への変換器
 
