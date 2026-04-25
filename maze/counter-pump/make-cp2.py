@@ -13,7 +13,7 @@ With --test, an extra witness register `o` is appended (3 registers + pc = 4 slo
 """
 import sys
 
-VERSION = "1.1"
+VERSION = "1.2"
 
 USAGE = """\
 Usage: make-cp2.py N [--test]
@@ -67,7 +67,9 @@ def make(n, test=False):
     def rule(lhs_slots, rhs_slots, pc_lhs, pc_rhs, inc_o=False, halt=False):
         """Format one cp2 rule; pads `o` slot when test=True (incremented if inc_o).
         If halt=True, emit RHS as a bare tuple (no `cp2` prefix) so that the
-        equation is a true Haskell base case usable directly under runghc."""
+        equation is a true Haskell base case usable directly under runghc.
+        In test mode the recursive RHS goes through `cp2_`, the trace wrapper
+        defined later in the file, so every step is logged via Debug.Trace."""
         if test:
             o_rhs = "o+1" if inc_o else "  o"
             lhs = ", ".join(lhs_slots + ["o"])
@@ -75,7 +77,12 @@ def make(n, test=False):
         else:
             lhs = ", ".join(lhs_slots)
             rhs = ", ".join(rhs_slots)
-        rhs_prefix = "" if halt else "cp2 "
+        if halt:
+            rhs_prefix = ""
+        elif test:
+            rhs_prefix = "cp2_ "
+        else:
+            rhs_prefix = "cp2 "
         return f"cp2 ({lhs}, {pc_lhs:4d}) = {rhs_prefix}({rhs}, {pc_rhs:4d})"
 
     out = []
@@ -94,6 +101,8 @@ def make(n, test=False):
         f"-- HALT   (pc={halt_pc}): noop to pc=1",
         "",
     ]
+    if test:
+        out += ["import Debug.Trace (trace)", ""]
     out += [
         sig,
         "",
@@ -132,9 +141,15 @@ def make(n, test=False):
     if test:
         out += [
             "",
-            f"-- main: print the final state from {start}.  Expected: {goal}.",
+            "-- cp2_ : trace wrapper.  Every recursive RHS goes through cp2_ so",
+            "-- Debug.Trace.trace prints each intermediate state to stderr.",
+            "cp2_ :: (Int, Int, Int, Int) -> (Int, Int, Int, Int)",
+            "cp2_ args = trace (show args) (cp2 args)",
+            "",
+            f"-- main: trace every step from {start}, then print the final state.",
+            f"-- Expected final state: {goal}.",
             "main :: IO ()",
-            f"main = print (cp2 {start})",
+            f"main = print (cp2_ {start})",
         ]
     return "\n".join(out) + "\n"
 

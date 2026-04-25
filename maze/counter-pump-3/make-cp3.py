@@ -19,9 +19,9 @@ With --test, an extra output register `o` is appended (4 registers + pc = 5 slot
 """
 import sys
 
-VERSION = "1.1"
+VERSION = "1.2"
 
-VERSION_TAG = "v1.1"
+VERSION_TAG = "v1.2"
 
 USAGE = """\
 Usage: make-cp3.py N [--test]
@@ -78,14 +78,20 @@ def make(n, test=False):
     def rule(lhs_slots, rhs_slots, pc_lhs, pc_rhs, halt=False):
         """Format one cp3 rule; pads `o` slot with `o` (unchanged) when test=True.
         If halt=True, emit RHS as a bare tuple (no `cp3` prefix) — true Haskell
-        base case usable directly under runghc."""
+        base case usable directly under runghc.  In test mode the recursive
+        RHS goes through `cp3_` so Debug.Trace prints every step."""
         if test:
             lhs = ", ".join(lhs_slots + ["o"])
             rhs = ", ".join(rhs_slots + ["  o"])
         else:
             lhs = ", ".join(lhs_slots)
             rhs = ", ".join(rhs_slots)
-        rhs_prefix = "" if halt else "cp3 "
+        if halt:
+            rhs_prefix = ""
+        elif test:
+            rhs_prefix = "cp3_ "
+        else:
+            rhs_prefix = "cp3 "
         return f"cp3 ({lhs}, {pc_lhs:4d}) = {rhs_prefix}({rhs}, {pc_rhs:4d})"
 
     out = []
@@ -103,6 +109,8 @@ def make(n, test=False):
         f"-- Inner  (pc={p_inner}): z=0 → DEC y, goto middle, else DEC z self-loop.",
         "",
     ]
+    if test:
+        out += ["import Debug.Trace (trace)", ""]
     out += [
         sig,
         "",
@@ -142,8 +150,8 @@ def make(n, test=False):
         rule(["x", "y", "0"], ["  x", "y-1", "  0"], p_inner, p_middle),
     ]
     if test:
-        # Inner DEC z self-loop: also INC o.
-        out.append(f"cp3 (x, y, z, o, {p_inner:4d}) = cp3 (  x,   y, z-1, o+1, {p_inner:4d})")
+        # Inner DEC z self-loop: also INC o.  RHS goes through cp3_ trace wrapper.
+        out.append(f"cp3 (x, y, z, o, {p_inner:4d}) = cp3_ (  x,   y, z-1, o+1, {p_inner:4d})")
     else:
         out.append(rule(["x", "y", "z"], ["  x", "  y", "z-1"], p_inner, p_inner))
     out += [
@@ -154,9 +162,15 @@ def make(n, test=False):
     if test:
         out += [
             "",
-            f"-- main: print the final state from {start}.  Expected: {goal}.",
+            "-- cp3_ : trace wrapper.  Every recursive RHS goes through cp3_ so",
+            "-- Debug.Trace.trace prints each intermediate state to stderr.",
+            "cp3_ :: (Int, Int, Int, Int, Int) -> (Int, Int, Int, Int, Int)",
+            "cp3_ args = trace (show args) (cp3 args)",
+            "",
+            f"-- main: trace every step from {start}, then print the final state.",
+            f"-- Expected final state: {goal}.",
             "main :: IO ()",
-            f"main = print (cp3 {start})",
+            f"main = print (cp3_ {start})",
         ]
     return "\n".join(out) + "\n"
 

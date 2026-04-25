@@ -17,7 +17,7 @@ Usage: python3 make-minsky-doubling.py N [--test] > mdN.hs
 """
 import sys
 
-VERSION = "1.1"
+VERSION = "1.2"
 
 USAGE = """\
 Usage: make-minsky-doubling.py N [--test]
@@ -77,7 +77,9 @@ def make(k, test=False):
         goal = "(0, 0, 1)"
 
     def rule(lhs_x, lhs_y, rhs_x, rhs_y, pc_lhs, pc_rhs, inc_o=False, halt=False):
-        """If halt=True, RHS is emitted as a bare tuple (true Haskell base case)."""
+        """If halt=True, RHS is emitted as a bare tuple (true Haskell base case).
+        In test mode, the recursive RHS goes through `md_` so Debug.Trace prints
+        every step."""
         if test:
             o_rhs = "o+1" if inc_o else "  o"
             lhs = f"{lhs_x}, {lhs_y}, o"
@@ -85,7 +87,12 @@ def make(k, test=False):
         else:
             lhs = f"{lhs_x}, {lhs_y}"
             rhs = f"{rhs_x}, {rhs_y}"
-        rhs_prefix = "" if halt else "md "
+        if halt:
+            rhs_prefix = ""
+        elif test:
+            rhs_prefix = "md_ "
+        else:
+            rhs_prefix = "md "
         return f"md ({lhs}, {pc_lhs:4d}) = {rhs_prefix}({rhs}, {pc_rhs:4d})"
 
     y_chain = ' → '.join(str(v) for v in y_seq)
@@ -114,6 +121,10 @@ def make(k, test=False):
     lines.append(f"--   S+4: y+1 → S+3")
     lines.append(f"-- Drain (pc=D): y-1 → D; ny: y=0 → 1 (HALT)")
     lines.append("")
+
+    if test:
+        lines.append("import Debug.Trace (trace)")
+        lines.append("")
 
     lines.append(sig)
 
@@ -147,9 +158,15 @@ def make(k, test=False):
 
     if test:
         lines.append("")
-        lines.append(f"-- main: print the final state from {start}.  Expected: {goal}.")
+        lines.append("-- md_ : trace wrapper.  Every recursive RHS goes through md_ so")
+        lines.append("-- Debug.Trace.trace prints each intermediate state to stderr.")
+        lines.append("md_ :: (Int, Int, Int, Int) -> (Int, Int, Int, Int)")
+        lines.append("md_ args = trace (show args) (md args)")
+        lines.append("")
+        lines.append(f"-- main: trace every step from {start}, then print the final state.")
+        lines.append(f"-- Expected final state: {goal}.")
         lines.append("main :: IO ()")
-        lines.append(f"main = print (md {start})")
+        lines.append(f"main = print (md_ {start})")
 
     return '\n'.join(lines) + '\n'
 
