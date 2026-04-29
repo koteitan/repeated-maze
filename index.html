@@ -27,7 +27,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.24</span><!-- new `zero` block-type for (0,0); JS solver + per-block render aware --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.25</span><!-- pan/zoom on x,y-only graph + counter-pump-3 Makefile --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -97,6 +97,7 @@ const DEBUG_SHOW_CANVAS_SIZE = false;
 /* Canvas pan/zoom viewport. Set by mouse handlers; setupCanvas uses
  * viewState when .userControlled is true, otherwise fits to path bounds. */
 let viewState = { cx: 0, cy: 0, zoom: 1, userControlled: false };
+let simpleViewState = { cx: 0, cy: 0, zoom: 1, userControlled: false };
 
 /* Read a CSS custom property (e.g. color('stroke') -> value of --stroke).
  * Reads from <body> so that body.darkmode overrides propagate. */
@@ -336,7 +337,7 @@ function setupCanvas(canvasId, wrapId, bounds) {
      * canvas stays visible without scrolling. */
     cssW = availW;
     const wrapTop = wrap.getBoundingClientRect().top;
-    const availH = Math.max(200, Math.floor(window.innerHeight - wrapTop - 20));
+    const availH = Math.max(200, Math.floor(window.innerHeight - wrapTop - 40));
     /* Mobile fallback: when the remaining window height is too short for
      * the maze to be usable, make the canvas square (= width) so the user
      * can still see the grid, even if it overflows below the viewport. */
@@ -1002,16 +1003,52 @@ function drawSimple(path, bounds) {
   const { minX, maxX, minY, maxY } = bounds;
   const cols = maxX - minX + 1;
   const rows = maxY - minY + 1;
-  const CELL = 16;
+  const BASE_CELL_S = 16;
   const PAD = 20;
   const canvas = document.getElementById('canvas-simple');
-  canvas.width = PAD * 2 + cols * CELL;
-  canvas.height = PAD * 2 + rows * CELL;
+  const wrap = document.getElementById('canvas-wrap-simple');
   const ctx = canvas.getContext('2d');
 
-  function bpos(bx, by) {
-    return { x: PAD + (bx - minX) * CELL, y: PAD + (maxY - by) * CELL };
+  /* Canvas size matches the main graph: width = container, height =
+   * remaining window height with a 40px bottom margin (min 200).
+   * Pan / zoom only changes the viewport contents, not the canvas. */
+  const availW = wrap.parentElement.clientWidth - 4;
+  const wrapTop = wrap.getBoundingClientRect().top;
+  const cssW = availW;
+  const cssH = Math.max(200, Math.floor(window.innerHeight - wrapTop - 40));
+  canvas.style.width = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  canvas.width = cssW;
+  canvas.height = cssH;
+  if (!simpleViewState.userControlled) {
+    const seedZoom = Math.max(0.1, Math.min(4, Math.min(
+      (cssW - 2 * PAD) / (cols * BASE_CELL_S),
+      (cssH - 2 * PAD) / (rows * BASE_CELL_S),
+    )));
+    simpleViewState = {
+      cx: (minX + maxX + 1) / 2,
+      cy: (minY + maxY) / 2,
+      zoom: seedZoom,
+      userControlled: false,
+    };
   }
+  const CELL = BASE_CELL_S * simpleViewState.zoom;
+  const viewCenterPx = { x: cssW / 2, y: cssH / 2 };
+
+  function bpos(bx, by) {
+    return {
+      x: viewCenterPx.x + (bx - simpleViewState.cx) * CELL,
+      y: viewCenterPx.y - (by - simpleViewState.cy) * CELL,
+    };
+  }
+
+  /* Visible block range */
+  const halfCols = (cssW / 2) / CELL;
+  const halfRows = (cssH / 2) / CELL;
+  const visMinX = Math.max(0, Math.floor(simpleViewState.cx - halfCols) - 1);
+  const visMaxX = Math.ceil(simpleViewState.cx + halfCols) + 1;
+  const visMinY = Math.max(0, Math.floor(simpleViewState.cy - halfRows) - 1);
+  const visMaxY = Math.ceil(simpleViewState.cy + halfRows) + 1;
 
   /* Clear */
   ctx.fillStyle = color('canvas-bg');
@@ -1019,8 +1056,8 @@ function drawSimple(path, bounds) {
 
   /* Grid — 1-pixel fillRect outline (no AA). */
   ctx.fillStyle = color('block-grid-light');
-  for (let bx = minX; bx <= maxX; bx++) {
-    for (let by = minY; by <= maxY; by++) {
+  for (let bx = visMinX; bx <= visMaxX; bx++) {
+    for (let by = visMinY; by <= visMaxY; by++) {
       const bp = bpos(bx, by);
       const xi = Math.round(bp.x), yi = Math.round(bp.y);
       ctx.fillRect(xi, yi, CELL, 1);
@@ -1030,20 +1067,22 @@ function drawSimple(path, bounds) {
     }
   }
 
-  /* Axis labels */
+  /* Axis labels (anchored at canvas edges so they stay visible during pan) */
   ctx.fillStyle = color('axis-num');
   ctx.font = '9px sans-serif';
   ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  for (let bx = minX; bx <= maxX; bx++) {
-    const bp = bpos(bx, minY);
-    ctx.fillText(bx, bp.x + CELL / 2, bp.y + CELL + 2);
+  ctx.textBaseline = 'bottom';
+  const labelColY = cssH - 2;
+  for (let bx = visMinX; bx <= visMaxX; bx++) {
+    const bp = bpos(bx, 0);
+    ctx.fillText(bx, bp.x + CELL / 2, labelColY);
   }
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
-  for (let by = minY; by <= maxY; by++) {
-    const bp = bpos(minX, by);
-    ctx.fillText(by, bp.x - 3, bp.y + CELL / 2);
+  const labelRowX = 12;
+  for (let by = visMinY; by <= visMaxY; by++) {
+    const bp = bpos(0, by);
+    ctx.fillText(by, labelRowX, bp.y + CELL / 2);
   }
 
   /* Path lines: gradient B->R, 1px */
@@ -1384,6 +1423,105 @@ document.getElementById('solve-btn').addEventListener('click', () => {
   });
   /* Disable native touch panning/zooming on the canvas so swipe/pinch
    * reach our handlers instead of scrolling the page. */
+  canvas.style.touchAction = 'none';
+})();
+
+/* ---- Simple-view canvas pan / zoom (mirrors the main canvas) ---- */
+(function initSimpleCanvasMouse() {
+  const canvas = document.getElementById('canvas-simple');
+  if (!canvas) return;
+  const BASE = 16;
+  let dragStart = null;
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const cxOld = simpleViewState.cx, cyOld = simpleViewState.cy, zOld = simpleViewState.zoom;
+    const bxAt = cxOld + (mx - rect.width / 2) / (BASE * zOld);
+    const byAt = cyOld - (my - rect.height / 2) / (BASE * zOld);
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    let zNew = zOld * factor;
+    zNew = Math.max(0.05, Math.min(8, zNew));
+    const CELLnew = BASE * zNew;
+    simpleViewState.zoom = zNew;
+    simpleViewState.cx = bxAt - (mx - rect.width / 2) / CELLnew;
+    simpleViewState.cy = byAt + (my - rect.height / 2) / CELLnew;
+    simpleViewState.userControlled = true;
+    draw();
+  }, { passive: false });
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    dragStart = { x: e.clientX, y: e.clientY, cx: simpleViewState.cx, cy: simpleViewState.cy };
+    canvas.style.cursor = 'grabbing';
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!dragStart) return;
+    const CELL = BASE * simpleViewState.zoom;
+    simpleViewState.cx = dragStart.cx - (e.clientX - dragStart.x) / CELL;
+    simpleViewState.cy = dragStart.cy + (e.clientY - dragStart.y) / CELL;
+    simpleViewState.userControlled = true;
+    draw();
+  });
+  window.addEventListener('mouseup', () => {
+    if (dragStart) { dragStart = null; canvas.style.cursor = ''; }
+  });
+
+  let touchState = null;
+  function tp(t) {
+    const rect = canvas.getBoundingClientRect();
+    return { x: t.clientX - rect.left, y: t.clientY - rect.top, rect };
+  }
+  canvas.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+      const p = tp(e.touches[0]);
+      touchState = { mode: 'pan', startX: p.x, startY: p.y, cx: simpleViewState.cx, cy: simpleViewState.cy };
+      e.preventDefault();
+    } else if (e.touches.length === 2) {
+      const p1 = tp(e.touches[0]), p2 = tp(e.touches[1]);
+      const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+      const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+      const CELL = BASE * simpleViewState.zoom;
+      const bxAt = simpleViewState.cx + (mx - p1.rect.width / 2) / CELL;
+      const byAt = simpleViewState.cy - (my - p1.rect.height / 2) / CELL;
+      touchState = { mode: 'pinch', startDist: dist, startZoom: simpleViewState.zoom, bxAt, byAt };
+      e.preventDefault();
+    }
+  }, { passive: false });
+  canvas.addEventListener('touchmove', (e) => {
+    if (!touchState) return;
+    if (touchState.mode === 'pan' && e.touches.length >= 1) {
+      const p = tp(e.touches[0]);
+      const CELL = BASE * simpleViewState.zoom;
+      simpleViewState.cx = touchState.cx - (p.x - touchState.startX) / CELL;
+      simpleViewState.cy = touchState.cy + (p.y - touchState.startY) / CELL;
+      simpleViewState.userControlled = true;
+      draw();
+      e.preventDefault();
+    } else if (touchState.mode === 'pinch' && e.touches.length >= 2) {
+      const p1 = tp(e.touches[0]), p2 = tp(e.touches[1]);
+      const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+      const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+      let zNew = touchState.startZoom * (dist / touchState.startDist);
+      zNew = Math.max(0.05, Math.min(8, zNew));
+      const CELLnew = BASE * zNew;
+      simpleViewState.zoom = zNew;
+      simpleViewState.cx = touchState.bxAt - (mx - p1.rect.width / 2) / CELLnew;
+      simpleViewState.cy = touchState.byAt + (my - p1.rect.height / 2) / CELLnew;
+      simpleViewState.userControlled = true;
+      draw();
+      e.preventDefault();
+    }
+  }, { passive: false });
+  canvas.addEventListener('touchend', (e) => {
+    if (e.touches.length === 0) touchState = null;
+    else if (e.touches.length === 1 && touchState && touchState.mode === 'pinch') {
+      const p = tp(e.touches[0]);
+      touchState = { mode: 'pan', startX: p.x, startY: p.y, cx: simpleViewState.cx, cy: simpleViewState.cy };
+    }
+  });
+  canvas.addEventListener('touchcancel', () => { touchState = null; });
   canvas.style.touchAction = 'none';
 })();
 
