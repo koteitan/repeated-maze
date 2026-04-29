@@ -1,71 +1,88 @@
 #!/usr/bin/env python3
-"""hs2maze.py -- Convert Haskell-style state machine to undirected repeated-maze.
+"""hs2maze.py -- Haskell -> repeated-maze via atomic-port (*1) decomposition.
 
-Input format (stdin or file):
-    myfunc :: (Int, Int, Int) -> (Int, Int, Int)
-    myfunc (x, y, 0) = myfunc (x+1, y,   1)
-    myfunc (x, y, 1) = myfunc (x, y+3,   2)
-    myfunc (x, y, 2) = myfunc (x-1,  y,   0)
+Pipeline:
+  1. Parse Haskell rules into atomic ports `Ca -> Cb (dx, dy)`.
+  2. Decompose each atomic port via the (*1) mapping into a source-side
+     port (in the source block) plus a destination-side port (in the
+     destination block).  The dest's incoming edge is the direction
+     opposite to the displacement, since the shared edge between blocks
+     (X, Y) and (X-1, Y) is the source's W and the destination's E.
 
-Each line: (x_expr, y_expr, pc_literal) = func (x_expr, y_expr, pc_literal)
-  - x_expr: x, x+k, x-k, or _ (unchanged), or literal 0 (zero-branch LHS)
-  - y_expr: y, y+k, y-k, or _ (unchanged), or literal 0 (zero-branch LHS)
-  - pc_literal: integer
-  - Only ONE of dx, dy may be nonzero per line (for non-zero-branch rules).
+         Ca-Cb( 0,  0) -> Ca-Cb              (intra-block, no split)
+         Ca-Cb(-1,  0) -> Ca-Wb  +  Eb-Cb
+         Ca-Cb( 1,  0) -> Ca-Eb  +  Wb-Cb
+         Ca-Cb( 0, -1) -> Ca-Sb  +  Nb-Cb
+         Ca-Cb( 0,  1) -> Ca-Nb  +  Sb-Cb
 
-Zero-branch rules (literal 0 on LHS):
-    myfunc (0, y, p) = myfunc (0, y, q)    -- nx port: E_p-E_q (fires at x=0)
-    myfunc (x, 0, p) = myfunc (x, 0, q)    -- ny port + bridge (fires at y=0)
+  3. Default (non-directional): apply the daisy-chain pass per block-
+     type port set.  For each connected component of the port graph,
+     gather the W/E/N/S edge terminals, sort them counter-clockwise as
+         S0..Sn, En..E0, Nn..N0, W0..Wn
+     and emit ports between consecutive entries.  C terminals are
+     dropped from the output.  Equivalent to the spec's per-Ca BFS
+     because every Ca in one component yields the same Ra.
 
-  The ny form requires pc p to also have a non-zero-branch y± rule so
-  that hs2maze can locate the N/S chain intermediate to redirect.
+  4. With --directional: skip the daisy-chain.  Emit `->` arrows that
+     keep C terminals (suitable for visualizers that draw Ck on a
+     circle inside each block).
 
-Mapping to undirected maze:
-  All user pc values map to E/W terminal indices.
-  Canonical state: (x, y, E, pc) -- always E-type.
+Block-type assignment:
+  catch-all rule (no zero-branch): src + dst ports go to normal, nx, ny.
+  zb='x' rule  (literal 0 in x slot): ports go to nx only.
+  zb='y' rule  (literal 0 in y slot): ports go to ny only.
+The (0, 0) corner is treated as ny (per the atomic convention) so a
+ny drain HALT at (1, 1, *) lands inside ny's port set after the +1
+register-to-block shift.
 
-  Movement costs in maze steps:
-    x+k:  k   steps  (chain of W-E ports)
-    x-k:  k   steps  (chain of E-W ports)
-    y+k:  k+1 steps  (W-N, (k-1) S-N, S-W)
-    y-k:  k+1 steps  (W-S, (k-1) N-S, N-W)
-    noop: 2   steps  (W-E, E-W)
+Maze coordinates: Haskell (x_reg, y_reg) -> block (x_reg + 1, y_reg + 1).
+Start: Haskell (0, 1, 0)        -> block (1, 2, W0)   -- by convention
+Goal:  Haskell (?, ?, 1) HALT   -> block (?, ?, W1).
 
-  Start: W0@(1,1) = E0@(0,1) -> user pc=0
-  Goal:  W1@(1,1) = E1@(0,1) -> user pc=1
-
-Usage: python3 hs2maze.py [input.hs]
-  Reads from stdin if no file given.
-  Outputs undirected maze string to stdout, diagnostics to stderr.
+Usage:
+    python3 hs2maze.py FILE.hs                  (default: non-directional)
+    python3 hs2maze.py FILE.hs --directional    (keep C terminals + arrows)
+    python3 hs2maze.py FILE.hs -v               (also pretty-print to stderr)
 """
 
 import re
 import sys
 
 
-VERSION = "0.2"
+VERSION = "1.0"
 
-HELP_TEXT = """hs2maze v{version} — Haskell state machine → repeated-maze converter.
+HELP_TEXT = """hs2maze v{version} -- Haskell state machine -> repeated-maze.
 
 Usage:
-  python3 hs2maze.py [FILE]          read Haskell from FILE (or stdin)
-  python3 hs2maze.py --help | -h     show this help
-  python3 hs2maze.py --version | -V  show the version and exit
+  python3 hs2maze.py [FILE]                  default: directed `->`, C terminals kept
+  python3 hs2maze.py [FILE] --undirected     undirected `-`, C terminals kept
+  python3 hs2maze.py [FILE] --daisy          undirected `-`, C terminals dropped
+                                             via the daisy-chain pass
+  python3 hs2maze.py [FILE] -v               pretty-print rules to stderr
+  python3 hs2maze.py --help | -h             show this help
+  python3 hs2maze.py --version | -V          show version and exit
 
-Input: a Haskell-style state machine over (x, y, pc) registers.  Each
-equation `FN (pat_x, pat_y, pat_pc) = FN (rhs_x, rhs_y, rhs_pc)` becomes
-a maze port chain.  A literal `0` on the LHS in the x or y slot flags
-the equation as a zero-branch rule (nx / ny + bridge).  See README.md
-for the full grammar.
+Output (stdout): a single maze line `normal: <ports>; nx: <ports>; ny: <ports>`.
 
-Output (stdout): a single maze string of the form
-    normal: <ports>; nx: <ports>; ny: <ports>
-Diagnostics (stderr): parsed transitions and generated port counts.
+Default mode emits directed `->` ports keeping C terminals — each
+Haskell rule becomes a (*1)-decomposed C->edge / edge->C / cross
+chain.  Solvers must follow the Haskell flow direction, so path length
+matches the Haskell step count up to a constant factor (O(k^2) for
+cp2-k, O(2^k) for md-k).  The two bridges `W0->C0` (entry) and
+`C1->W1` (exit) anchor the maze start (0,0,W0) / goal (0,0,W1) to the
+Haskell-level (0,0,C0) / (0,0,C1).
+
+--undirected drops the direction but keeps C terminals.  BFS short-
+circuits via reversed ports, so path length flattens to O(k).
+
+--daisy applies the daisy-chain pass after (*1) decomposition: drops C
+terminals, chains W/E/N/S terms in CCW order, also flattens to O(k).
+Useful when downstream tooling can't parse C terminals.
 """.format(version=VERSION)
 
 
 def parse_expr(s):
-    """Parse 'x+3', 'y-1', 'x', '_', '0' etc."""
+    """Parse 'x+3', 'y-1', 'x', '_', '0' etc. -> (var_or_None, offset)."""
     s = s.strip()
     if s == '_':
         return ('_', 0)
@@ -78,21 +95,12 @@ def parse_expr(s):
 
 
 def parse_file(text):
-    """Parse Haskell-style function definitions.
-    Returns list of (pc_src, dx, dy, pc_dst, zero_branch),
-    where zero_branch is None, 'x', or 'y'.
-
-    Raises ValueError on an immediate-assignment RHS (literal in a slot
-    that captures any value), since hs2maze cannot emit `r := k` directly.
-    The only allowed (literal-LHS, literal-RHS) pair is (0, 0), the
-    zero-branch passthrough used to mark nx / ny rules.
-    """
-    transitions = []
+    """Parse Haskell rules into list of (pc_src, dx, dy, pc_dst, zb).
+    zb is None / 'x' / 'y'."""
+    rules = []
     for line_no, raw_line in enumerate(text.splitlines(), start=1):
         line = raw_line.split('--')[0].strip()
-        if not line or '::' in line:
-            continue
-        if '=' not in line:
+        if not line or '::' in line or '=' not in line:
             continue
         lhs, rhs = line.split('=', 1)
         lhs_m = re.search(r'\(\s*([^,]+),\s*([^,]+),\s*([^)]+)\)', lhs)
@@ -105,8 +113,7 @@ def parse_file(text):
         rx = parse_expr(rhs_m.group(1))
         ry = parse_expr(rhs_m.group(2))
         rpc = parse_expr(rhs_m.group(3))
-        # Reject immediate assignment: a literal in the RHS slot when the
-        # corresponding LHS does not also pin that slot to the same literal 0.
+        # Reject `r := k` (literal RHS that captures any value).
         for slot, lp, rp in (("x", lx, rx), ("y", ly, ry)):
             rhs_is_lit = rp[0] is None
             zero_passthrough = (
@@ -121,193 +128,230 @@ def parse_file(text):
                 )
         pc_src = lpc[1]
         pc_dst = rpc[1]
-        # Detect literal-0 LHS as zero-branch marker.
-        zero_branch = None
+        zb = None
         if lx[0] is None and lx[1] == 0:
-            zero_branch = 'x'
+            zb = 'x'
         elif ly[0] is None and ly[1] == 0:
-            zero_branch = 'y'
+            zb = 'y'
         dx = rx[1] if rx[0] in ('x', '_') else 0
         dy = ry[1] if ry[0] in ('y', '_') else 0
-        transitions.append((pc_src, dx, dy, pc_dst, zero_branch))
-    return transitions
+        rules.append((pc_src, dx, dy, pc_dst, zb))
+    return rules
 
 
-class PortGenerator:
-    """Generate maze ports from state machine transitions.
-
-    Produces three port buckets:
-      - normal: in-block ports for normal blocks (x>=1, y>=1).
-      - nx:     in-block ports for nx boundary blocks (x=0).
-      - ny:     in-block ports for ny boundary blocks (y=0).
-    Bridges (normal ports feeding a ny redirect back into the normal region)
-    are merged into `normal`.
-    """
-
-    def __init__(self, transitions):
-        self.transitions = transitions
-        max_pc = max(max(t[0], t[3]) for t in transitions)
-        self.next_ew = max_pc + 1   # E/W terminal allocator
-        self.next_ns = 0            # N/S terminal allocator
-        self.normal = []
-        self.nx = []
-        self.ny = []
-        # For y-zero branches we need the N/S chain intermediate that the
-        # non-zero-branch y± chain allocated.  Populated during pass 1.
-        self.y_chain_head = {}      # pc_src → first allocated N/S index
-
-    def alloc_ew(self):
-        idx = self.next_ew
-        self.next_ew += 1
-        return idx
-
-    def alloc_ns(self):
-        idx = self.next_ns
-        self.next_ns += 1
-        return idx
-
-    def generate(self):
-        # Pass 1: non-zero-branch transitions.
-        for pc_src, dx, dy, pc_dst, zb in self.transitions:
-            if zb is not None:
-                continue
-            if dx != 0 and dy != 0:
-                raise ValueError(
-                    f"pc={pc_src}: both dx={dx} and dy={dy} nonzero. "
-                    "Split into separate x and y steps.")
-            if dx > 0:
-                self._x_plus(pc_src, dx, pc_dst)
-            elif dx < 0:
-                self._x_minus(pc_src, -dx, pc_dst)
-            elif dy > 0:
-                self._y_plus(pc_src, dy, pc_dst)
-            elif dy < 0:
-                self._y_minus(pc_src, -dy, pc_dst)
-            else:
-                self._noop(pc_src, pc_dst)
-        # Pass 2: zero-branch transitions.
-        for pc_src, dx, dy, pc_dst, zb in self.transitions:
-            if zb is None:
-                continue
-            if zb == 'x':
-                # At x=0 nx block: redirect E_pc_src → E_pc_dst.
-                self.nx.append(('E', pc_src, 'E', pc_dst))
-            else:  # zb == 'y'
-                t = self.y_chain_head.get(pc_src)
-                if t is None:
-                    raise ValueError(
-                        f"pc={pc_src}: y-zero branch has no paired y± chain "
-                        f"(add a non-literal-0 rule for the same pc)")
-                fresh = self.alloc_ns()
-                # ny-block port: redirect N_t → N_fresh.
-                self.ny.append(('N', t, 'N', fresh))
-                # Bridge in normal block: S_fresh → W_pc_dst.
-                self.normal.append(('S', fresh, 'W', pc_dst))
-        return self.normal, self.nx, self.ny
-
-    def _x_plus(self, src, k, dst):
-        cur = src
-        for i in range(k):
-            nxt = dst if i == k - 1 else self.alloc_ew()
-            self.normal.append(('W', cur, 'E', nxt))
-            cur = nxt
-
-    def _x_minus(self, src, k, dst):
-        cur = src
-        for i in range(k):
-            nxt = dst if i == k - 1 else self.alloc_ew()
-            self.normal.append(('E', cur, 'W', nxt))
-            cur = nxt
-
-    def _y_plus(self, src, k, dst):
-        t = self.alloc_ns()
-        self.y_chain_head[src] = t
-        self.normal.append(('W', src, 'N', t))
-        for _ in range(k - 1):
-            t_new = self.alloc_ns()
-            self.normal.append(('S', t, 'N', t_new))
-            t = t_new
-        self.normal.append(('S', t, 'W', dst))
-
-    def _y_minus(self, src, k, dst):
-        t = self.alloc_ns()
-        self.y_chain_head[src] = t
-        self.normal.append(('W', src, 'S', t))
-        for _ in range(k - 1):
-            t_new = self.alloc_ns()
-            self.normal.append(('N', t, 'S', t_new))
-            t = t_new
-        self.normal.append(('N', t, 'W', dst))
-
-    def _noop(self, src, dst):
-        tmp = self.alloc_ew()
-        self.normal.append(('W', src, 'E', tmp))
-        self.normal.append(('E', tmp, 'W', dst))
-
-
-def ports_to_maze_string(normal, nx, ny):
-    """Render the three port buckets as a maze-string."""
-    def render(ports):
-        seen = set()
-        out = []
-        for sd, si, dd, di in ports:
-            key = (sd, si, dd, di)
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(f"{sd}{si}-{dd}{di}")
-        return ', '.join(out) if out else '(none)'
-    return (
-        f"normal: {render(normal)}; "
-        f"nx: {render(nx)}; "
-        f"ny: {render(ny)}"
+def decompose_atomic(pc_src, dx, dy, pc_dst):
+    """Return (src_port, dst_port_or_None) per the (*1) mapping.
+    Each port is a tuple (s_dir, s_idx, d_dir, d_idx).
+    For (0, 0) the single intra-block port `Ca-Cb` is returned with
+    dst_port = None."""
+    if dx == 0 and dy == 0:
+        return (('C', pc_src, 'C', pc_dst), None)
+    if (dx, dy) == (-1, 0):
+        return (('C', pc_src, 'W', pc_dst), ('E', pc_dst, 'C', pc_dst))
+    if (dx, dy) == (1, 0):
+        return (('C', pc_src, 'E', pc_dst), ('W', pc_dst, 'C', pc_dst))
+    if (dx, dy) == (0, -1):
+        return (('C', pc_src, 'S', pc_dst), ('N', pc_dst, 'C', pc_dst))
+    if (dx, dy) == (0, 1):
+        return (('C', pc_src, 'N', pc_dst), ('S', pc_dst, 'C', pc_dst))
+    raise ValueError(
+        f"unsupported displacement (dx={dx}, dy={dy}); "
+        "only single-axis unit steps are supported"
     )
+
+
+def build_block_sets(rules):
+    """Distribute (*1)-decomposed ports across normal / nx / ny sets.
+    Catch-all rules go to all 3; zb='x' goes to nx; zb='y' goes to ny."""
+    sets = {'normal': [], 'nx': [], 'ny': []}
+    for pc_src, dx, dy, pc_dst, zb in rules:
+        src_port, dst_port = decompose_atomic(pc_src, dx, dy, pc_dst)
+        if zb is None:
+            targets = ('normal', 'nx', 'ny')
+        elif zb == 'x':
+            targets = ('nx',)
+        else:
+            targets = ('ny',)
+        for bt in targets:
+            sets[bt].append(src_port)
+            if dst_port is not None:
+                sets[bt].append(dst_port)
+    return sets
+
+
+_CCW_GROUP = {'S': 0, 'E': 1, 'N': 2, 'W': 3}
+
+
+def ccw_key(term):
+    """Sort key implementing the spec's CCW order
+    S0..Sn, En..E0, Nn..N0, W0..Wn."""
+    d, idx = term
+    g = _CCW_GROUP[d]
+    if g in (0, 3):
+        return (g, idx)
+    return (g, -idx)
+
+
+def daisy_chain(ports):
+    """Apply the daisy-chain pass to one block-type's port set.
+    Returns a new port list with C terminals eliminated.  The start
+    anchor `W0-C0` and goal anchor `W1-C1` are added to the normal set
+    by the caller before this runs, so W0 and W1 land in C0's / C1's
+    components and the daisy chain connects them to the rest."""
+    adj = {}
+    nodes = set()
+    for sd, si, dd, di in ports:
+        u = (sd, si)
+        v = (dd, di)
+        if u == v:
+            continue
+        nodes.add(u)
+        nodes.add(v)
+        adj.setdefault(u, set()).add(v)
+        adj.setdefault(v, set()).add(u)
+
+    visited = set()
+    new_ports = []
+    seen_chain = set()
+    for start in nodes:
+        if start in visited:
+            continue
+        comp = []
+        stack = [start]
+        while stack:
+            u = stack.pop()
+            if u in visited:
+                continue
+            visited.add(u)
+            comp.append(u)
+            for v in adj.get(u, ()):
+                if v not in visited:
+                    stack.append(v)
+        edge_terms = sorted(
+            (t for t in comp if t[0] != 'C'),
+            key=ccw_key,
+        )
+        for i in range(len(edge_terms) - 1):
+            u = edge_terms[i]
+            v = edge_terms[i + 1]
+            key = (u, v) if u < v else (v, u)
+            if key in seen_chain:
+                continue
+            seen_chain.add(key)
+            new_ports.append((u[0], u[1], v[0], v[1]))
+    return new_ports
+
+
+def render_undirected(ports):
+    seen = set()
+    out = []
+    for sd, si, dd, di in ports:
+        a = (sd, si)
+        b = (dd, di)
+        key = frozenset({a, b})
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(f"{sd}{si}-{dd}{di}")
+    return ', '.join(out) if out else '(none)'
+
+
+def render_directed(ports):
+    seen = set()
+    out = []
+    for sd, si, dd, di in ports:
+        key = (sd, si, dd, di)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(f"{sd}{si}->{dd}{di}")
+    return ', '.join(out) if out else '(none)'
 
 
 def main():
     args = sys.argv[1:]
-    if any(a in ("--help", "-h") for a in args):
-        print(HELP_TEXT)
-        return
-    if any(a in ("--version", "-V") for a in args):
-        print(f"hs2maze {VERSION}")
-        return
-    if args:
-        with open(args[0]) as f:
-            text = f.read()
-    else:
-        text = sys.stdin.read()
+    daisy = False
+    undirected = False
+    verbose = False
+    file_arg = None
+    for a in args:
+        if a in ('--help', '-h'):
+            print(HELP_TEXT)
+            return
+        if a in ('--version', '-V'):
+            print(f"hs2maze {VERSION}")
+            return
+        if a == '--daisy':
+            daisy = True
+        elif a == '--undirected':
+            undirected = True
+        elif a in ('-v', '--verbose'):
+            verbose = True
+        else:
+            file_arg = a
 
+    text = open(file_arg).read() if file_arg else sys.stdin.read()
     try:
-        transitions = parse_file(text)
+        rules = parse_file(text)
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(2)
-    if not transitions:
-        print("Error: no transitions found", file=sys.stderr)
+    if not rules:
+        print("Error: no rules found", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Parsed {len(transitions)} transitions:", file=sys.stderr)
-    for pc_src, dx, dy, pc_dst, zb in transitions:
-        s = f"  pc={pc_src} -> pc={pc_dst}"
-        if dx: s += f"  dx={dx:+d}"
-        if dy: s += f"  dy={dy:+d}"
-        if not dx and not dy and zb is None: s += "  (noop)"
-        if zb: s += f"  [zero-branch {zb}=0]"
-        print(s, file=sys.stderr)
+    if verbose:
+        print(f"Parsed {len(rules)} atomic rules:", file=sys.stderr)
+        for pc_src, dx, dy, pc_dst, zb in rules:
+            extra = f"  [zb={zb}]" if zb else ""
+            print(
+                f"  C{pc_src} -> C{pc_dst} ({dx:+d},{dy:+d}){extra}",
+                file=sys.stderr,
+            )
 
-    gen = PortGenerator(transitions)
-    normal, nx, ny = gen.generate()
-    nterm = max(gen.next_ew, gen.next_ns)
-    total = len(normal) + len(nx) + len(ny)
+    sets = build_block_sets(rules)
+    # Bridges anchoring maze start (0,0,W0) and goal (0,0,W1) to the
+    # Haskell-level (0,0,C0) / (0,0,C1).  Entry uses W0->C0 and exit
+    # uses C1->W1 so the bridges work even when the rest of the maze
+    # is directed and walkers can't reverse.  Added in all 3 block-
+    # types so they apply at the (0,0) corner regardless of which
+    # block-type set the solver consults.
+    for bt in ('normal', 'nx', 'ny'):
+        sets[bt].append(('W', 0, 'C', 0))   # entry: W0 -> C0
+        sets[bt].append(('C', 1, 'W', 1))   # exit:  C1 -> W1
 
-    print(
-        f"Generated {total} ports "
-        f"(normal: {len(normal)}, nx: {len(nx)}, ny: {len(ny)}), nterm={nterm}",
-        file=sys.stderr,
-    )
-    maze_str = ports_to_maze_string(normal, nx, ny)
-    print(maze_str)
+    if daisy:
+        # Daisy-chain pass drops C terminals AND collapses multi-rule
+        # chains into one short CCW chain, so the feature/atomic-style
+        # O(k^2) path-length growth flattens to O(k).  Default off.
+        sets = {bt: daisy_chain(ports) for bt, ports in sets.items()}
+        renderer = render_undirected
+    elif undirected:
+        # Keep C terminals but render `-` (both directions usable).
+        # BFS finds shortest path regardless of Haskell flow, so path
+        # length is also linear in k — useful for visual debugging.
+        renderer = render_undirected
+    else:
+        # Default: directed `->` so each (*1) edge is one-way and the
+        # walker has to follow the Haskell rule chain.  Path length
+        # matches the Haskell step count up to a constant factor and
+        # preserves O(k^2) for cp2-k / O(2^k) for md-k.
+        renderer = render_directed
+
+    if verbose:
+        for bt in ('normal', 'nx', 'ny'):
+            print(
+                f"{bt}: {len(sets[bt])} ports after "
+                + ("decomposition" if directional else "daisy-chain"),
+                file=sys.stderr,
+            )
+
+    parts = [
+        f"normal: {renderer(sets['normal'])}",
+        f"nx: {renderer(sets['nx'])}",
+        f"ny: {renderer(sets['ny'])}",
+    ]
+    print('; '.join(parts))
 
 
 if __name__ == '__main__':
