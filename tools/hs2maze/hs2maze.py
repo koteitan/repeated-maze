@@ -161,17 +161,23 @@ def decompose_atomic(pc_src, dx, dy, pc_dst):
 
 
 def build_block_sets(rules):
-    """Distribute (*1)-decomposed ports across normal / nx / ny sets.
-    Catch-all rules go to all 3; zb='x' goes to nx; zb='y' goes to ny."""
-    sets = {'normal': [], 'nx': [], 'ny': []}
+    """Distribute (*1)-decomposed ports across four block-type sets:
+        normal -- (X >= 1, Y >= 1)
+        nx     -- (X = 0,  Y >= 1)
+        ny     -- (X >= 1, Y = 0)
+        zero   -- (X = 0,  Y = 0)
+    Catch-all rules (zb=None) fire regardless of X / Y, so they go
+    to all four sets.  zb='x' (X=0 literal) fires at X=0 -> nx + zero.
+    zb='y' (Y=0 literal) fires at Y=0 -> ny + zero."""
+    sets = {'normal': [], 'nx': [], 'ny': [], 'zero': []}
     for pc_src, dx, dy, pc_dst, zb in rules:
         src_port, dst_port = decompose_atomic(pc_src, dx, dy, pc_dst)
         if zb is None:
-            targets = ('normal', 'nx', 'ny')
+            targets = ('normal', 'nx', 'ny', 'zero')
         elif zb == 'x':
-            targets = ('nx',)
+            targets = ('nx', 'zero')
         else:
-            targets = ('ny',)
+            targets = ('ny', 'zero')
         for bt in targets:
             sets[bt].append(src_port)
             if dst_port is not None:
@@ -312,11 +318,9 @@ def main():
     sets = build_block_sets(rules)
     # Bridges anchoring maze start (0,0,W0) and goal (0,0,W1) to the
     # Haskell-level (0,0,C0) / (0,0,C1).  Entry uses W0->C0 and exit
-    # uses C1->W1 so the bridges work even when the rest of the maze
-    # is directed and walkers can't reverse.  Added in all 3 block-
-    # types so they apply at the (0,0) corner regardless of which
-    # block-type set the solver consults.
-    for bt in ('normal', 'nx', 'ny'):
+    # uses C1->W1.  Block (0,0) is `zero`, so the bridges go there;
+    # added to all four sets for symmetry / robustness.
+    for bt in ('normal', 'nx', 'ny', 'zero'):
         sets[bt].append(('W', 0, 'C', 0))   # entry: W0 -> C0
         sets[bt].append(('C', 1, 'W', 1))   # exit:  C1 -> W1
 
@@ -339,10 +343,9 @@ def main():
         renderer = render_directed
 
     if verbose:
-        for bt in ('normal', 'nx', 'ny'):
+        for bt in ('normal', 'nx', 'ny', 'zero'):
             print(
-                f"{bt}: {len(sets[bt])} ports after "
-                + ("decomposition" if directional else "daisy-chain"),
+                f"{bt}: {len(sets[bt])} ports",
                 file=sys.stderr,
             )
 
@@ -350,6 +353,7 @@ def main():
         f"normal: {renderer(sets['normal'])}",
         f"nx: {renderer(sets['nx'])}",
         f"ny: {renderer(sets['ny'])}",
+        f"zero: {renderer(sets['zero'])}",
     ]
     print('; '.join(parts))
 

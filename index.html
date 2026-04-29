@@ -27,7 +27,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.23</span><!-- (*1) edge-terminal hs2maze + start/goal anchored at (0,0,W0)/(0,0,W1) --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.24</span><!-- new `zero` block-type for (0,0); JS solver + per-block render aware --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -116,7 +116,7 @@ function parseMaze(text) {
   /* Strip "Maze:" prefix and any "Path length: N" lines */
   text = text.replace(/^maze:\s*/i, '').trim();
   text = text.replace(/^path\s+length:\s*\d+.*$/gim, '').trim();
-  const result = { normal: [], nx: [], ny: [] };
+  const result = { normal: [], nx: [], ny: [], zero: [] };
   const sections = text.split(';');
   for (const sec of sections) {
     const t = sec.trim();
@@ -139,8 +139,17 @@ function parseMaze(text) {
     if (type === 'normal') result.normal = ports;
     else if (type === 'nx') result.nx = ports;
     else if (type === 'ny') result.ny = ports;
+    else if (type === 'zero') result.zero = ports;
   }
   return result;
+}
+
+/* Pick the port set that applies at block (bx, by). */
+function portsAtBlock(maze, bx, by) {
+  if (bx === 0 && by === 0) return maze.zero || [];
+  if (bx === 0)             return maze.nx   || [];
+  if (by === 0)             return maze.ny   || [];
+  return maze.normal || [];
 }
 
 function parsePath(text) {
@@ -158,8 +167,8 @@ function parsePath(text) {
 
 function detectNterm(maze, path) {
   let nterm = 2;
-  for (const ports of [maze.normal, maze.nx, maze.ny])
-    for (const p of ports)
+  for (const ports of [maze.normal, maze.nx, maze.ny, maze.zero])
+    for (const p of (ports || []))
       nterm = Math.max(nterm, p.src.idx + 1, p.dst.idx + 1);
   for (const s of path)
     nterm = Math.max(nterm, s.idx + 1);
@@ -169,6 +178,18 @@ function detectNterm(maze, path) {
 /* ---- Geometry helpers ---- */
 
 function termLocalPos(dir, idx, nterm, cellSize) {
+  if (dir === 'C') {
+    /* Place C0..C[nterm-1] on a circle of radius cellSize*(3/8)
+     * centred on the cell, starting at angle 3pi/4 and advancing
+     * clockwise so C0 lands in the upper-left quadrant. */
+    if (nterm <= 1) return { x: cellSize / 2, y: cellSize / 2 };
+    const r = cellSize * 3 / 8;
+    const theta = (3 * Math.PI / 4) + (2 * Math.PI * idx / nterm);
+    return {
+      x: cellSize / 2 + r * Math.cos(theta),
+      y: cellSize / 2 + r * Math.sin(theta),
+    };
+  }
   const t = cellSize * (idx + 1) / (nterm + 1);
   switch (dir) {
     case 'E': return { x: cellSize, y: t };
@@ -683,12 +704,15 @@ function drawNormal(maze, path, nterm, bounds, diagonal) {
       }
     }
   } else {
-    /* Diagonal mode: straight/curved lines directly between terminals. */
+    /* Diagonal mode: straight/curved lines directly between terminals,
+     * picking the per-block port set so nx / ny / zero are drawn the
+     * same way as normal — just inside their own (0,y) / (x,0) / (0,0)
+     * cells. */
     for (let bx = minX; bx <= maxX; bx++) {
       for (let by = minY; by <= maxY; by++) {
-        if (bx < 1 || by < 1) continue;
+        if (bx < 0 || by < 0) continue;
         const bp = bpos(bx, by);
-        for (const port of maze.normal) {
+        for (const port of portsAtBlock(maze, bx, by)) {
           const from = termLocalPos(port.src.dir, port.src.idx, nterm, CELL);
           const to = termLocalPos(port.dst.dir, port.dst.idx, nterm, CELL);
           const a = arrowCfg(port);
@@ -722,66 +746,24 @@ function drawNormal(maze, path, nterm, bounds, diagonal) {
     }
   }
 
-  /* nx port edges — use grid positions in undirected mode */
-  for (let by = minY; by <= maxY; by++) {
-    if (by < 1) continue;
-    const bp = bpos(0, by);
-    const drawn = new Set();
-    for (const port of maze.nx) {
-      if (!diagonal) {
-        const k1 = port.src.idx + ',' + port.dst.idx;
-        const k2 = port.dst.idx + ',' + port.src.idx;
-        if (drawn.has(k2)) continue;
-        drawn.add(k1);
+  /* nx / ny / zero ports are drawn together with normal ports above
+   * (per block, picked by portsAtBlock).  In orthogonal mode the Lee
+   * subgrid only routes the normal port set, so nx / ny / zero blocks
+   * fall back to diagonal-style lines here. */
+  if (!diagonal) {
+    for (let bx = minX; bx <= maxX; bx++) {
+      for (let by = minY; by <= maxY; by++) {
+        if (bx < 0 || by < 0) continue;
+        if (bx >= 1 && by >= 1) continue;  /* normal: handled by Lee */
+        const bp = bpos(bx, by);
+        for (const port of portsAtBlock(maze, bx, by)) {
+          const from = termLocalPos(port.src.dir, port.src.idx, nterm, CELL);
+          const to = termLocalPos(port.dst.dir, port.dst.idx, nterm, CELL);
+          const a = arrowCfg(port);
+          drawPortDiag(bp.x + from.x, bp.y + from.y, bp.x + to.x, bp.y + to.y,
+                   port.src.dir === port.dst.dir, port.src.dir, a.src, a.dst);
+        }
       }
-      /* nx ports: E terminals at x=0 boundary. Use W channel y for grid alignment. */
-      const fwk = 'W' + port.src.idx, twk = 'W' + port.dst.idx;
-      const from = (!diagonal && gridTermPos && gridTermPos[fwk])
-        ? { x: CELL, y: gridTermPos[fwk].y }
-        : termLocalPos('E', port.src.idx, nterm, CELL);
-      const to = (!diagonal && gridTermPos && gridTermPos[twk])
-        ? { x: CELL, y: gridTermPos[twk].y }
-        : termLocalPos('E', port.dst.idx, nterm, CELL);
-      const fx = bp.x + from.x, fy = bp.y + from.y;
-      const tx = bp.x + to.x, ty = bp.y + to.y;
-      const mx = (fx + tx) / 2, my = (fy + ty) / 2;
-      const cpx = mx - 30 * S, cpy = my;
-      drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 1);
-      const a = arrowCfg(port);
-      if (a.dst) arrowheadV(tx, ty, Math.atan2(ty - cpy, tx - cpx), color('stroke'));
-      if (a.src) arrowheadV(fx, fy, Math.atan2(fy - cpy, fx - cpx), color('stroke'));
-    }
-  }
-
-  /* ny port edges — use grid positions in undirected mode */
-  for (let bx = minX; bx <= maxX; bx++) {
-    if (bx < 1) continue;
-    const bp = bpos(bx, 0);
-    const drawn = new Set();
-    for (const port of maze.ny) {
-      if (!diagonal) {
-        const k1 = port.src.idx + ',' + port.dst.idx;
-        const k2 = port.dst.idx + ',' + port.src.idx;
-        if (drawn.has(k2)) continue;
-        drawn.add(k1);
-      }
-      /* ny ports: N terminals at y=0 boundary. N[i]@(bx,0) = S[i]@(bx,1),
-       * so use S channel x for grid alignment with the adjacent normal block. */
-      const fsk = 'S' + port.src.idx, tsk = 'S' + port.dst.idx;
-      const from = (!diagonal && gridTermPos && gridTermPos[fsk])
-        ? { x: gridTermPos[fsk].x, y: 0 }
-        : termLocalPos('N', port.src.idx, nterm, CELL);
-      const to = (!diagonal && gridTermPos && gridTermPos[tsk])
-        ? { x: gridTermPos[tsk].x, y: 0 }
-        : termLocalPos('N', port.dst.idx, nterm, CELL);
-      const fx = bp.x + from.x, fy = bp.y + from.y;
-      const tx = bp.x + to.x, ty = bp.y + to.y;
-      const mx = (fx + tx) / 2, my = (fy + ty) / 2;
-      const cpx = mx, cpy = my + 30 * S;
-      drawCurvedLine(ctx, fx, fy, tx, ty, cpx, cpy, color('stroke'), 1);
-      const a = arrowCfg(port);
-      if (a.dst) arrowheadV(tx, ty, Math.atan2(ty - cpy, tx - cpx), color('stroke'));
-      if (a.src) arrowheadV(fx, fy, Math.atan2(fy - cpy, fx - cpx), color('stroke'));
     }
   }
 
@@ -792,8 +774,8 @@ function drawNormal(maze, path, nterm, bounds, diagonal) {
    * Each is an arrow touching the block edge at the terminal, with the
    * label just further outside. Start arrow points into the maze; Goal
    * arrow points out of it. */
-  const startState = { x: 0, y: 1, dir: 'E', idx: 0 };
-  const goalState  = { x: 0, y: 1, dir: 'E', idx: 1 };
+  const startState = { x: 0, y: 0, dir: 'W', idx: 0 };
+  const goalState  = { x: 0, y: 0, dir: 'W', idx: 1 };
   const startPos = statePos(startState);
   const goalPos  = statePos(goalState);
   const arrowLen = 36 * S;
@@ -1101,94 +1083,74 @@ function drawSimple(path, bounds) {
  * becomes canonical E[n] of its left neighbour; S[n] becomes canonical
  * N[n] of the block below. Start = (0, 1, E, 0), Goal = (0, 1, E, 1).
  */
+/* No canonicalization in the (*1) format -- state.dir keeps the
+ * original W/E/N/S/C terminal direction. */
 function toCanonical(bx, by, tdir, tidx) {
-  if (tdir === 'E') return { x: bx,     y: by,     dir: 'E', idx: tidx };
-  if (tdir === 'W') return { x: bx - 1, y: by,     dir: 'E', idx: tidx };
-  if (tdir === 'N') return { x: bx,     y: by,     dir: 'N', idx: tidx };
-  /* tdir === 'S' */  return { x: bx,     y: by - 1, dir: 'N', idx: tidx };
+  return { x: bx, y: by, dir: tdir, idx: tidx };
 }
 /* Build adjacency list tables from a parsed maze. Undirected ports (the
  * "A-B" syntax) add both directions; directed ports keep the source
  * orientation only. */
 function buildSolverIndex(maze) {
-  const normal = new Map();          /* srcKey "W2" -> [{dir, idx}, ...] */
-  const nx = new Map();              /* srcIdx     -> [dstIdx, ...]       */
-  const ny = new Map();
-  function addN(key, dst) {
-    if (!normal.has(key)) normal.set(key, []);
-    normal.get(key).push(dst);
+  function build(ports) {
+    const adj = new Map();
+    function add(s, d) {
+      const k = s.dir + s.idx;
+      if (!adj.has(k)) adj.set(k, []);
+      adj.get(k).push({ dir: d.dir, idx: d.idx });
+    }
+    for (const p of (ports || [])) {
+      add(p.src, p.dst);
+      if (!p.directed) add(p.dst, p.src);
+    }
+    return adj;
   }
-  for (const p of (maze.normal || [])) {
-    addN(p.src.dir + p.src.idx, p.dst);
-    if (!p.directed) addN(p.dst.dir + p.dst.idx, p.src);
-  }
-  function addE(map, si, di) {
-    if (!map.has(si)) map.set(si, []);
-    map.get(si).push(di);
-  }
-  for (const p of (maze.nx || [])) {
-    addE(nx, p.src.idx, p.dst.idx);
-    if (!p.directed) addE(nx, p.dst.idx, p.src.idx);
-  }
-  for (const p of (maze.ny || [])) {
-    addE(ny, p.src.idx, p.dst.idx);
-    if (!p.directed) addE(ny, p.dst.idx, p.src.idx);
-  }
-  return { normal, nx, ny };
+  return {
+    normal: build(maze.normal),
+    nx:     build(maze.nx),
+    ny:     build(maze.ny),
+    zero:   build(maze.zero),
+  };
+}
+const _CROSS_DIR = {
+  W: { dx: -1, dy: 0, opp: 'E' },
+  E: { dx:  1, dy: 0, opp: 'W' },
+  N: { dx:  0, dy: 1, opp: 'S' },
+  S: { dx:  0, dy:-1, opp: 'N' },
+};
+function blockTypesAt(x, y) {
+  /* Catch-all rules are duplicated into every set; read only the set
+   * matching the block.  Corner (0,0) is its own `zero` set. */
+  if (x === 0 && y === 0) return ['zero'];
+  if (x === 0)            return ['nx'];
+  if (y === 0)            return ['ny'];
+  return ['normal'];
 }
 function getSolverNeighbors(s, idx) {
   const out = [];
-  if (s.dir === 'E') {
-    /* Block (s.x, s.y) — terminal E[s.idx] */
-    if (s.y > 0) {
-      if (s.x > 0) {
-        for (const d of (idx.normal.get('E' + s.idx) || [])) {
-          const ns = toCanonical(s.x, s.y, d.dir, d.idx);
-          if (ns.x >= 0 && ns.y >= 0) out.push(ns);
-        }
-      } else {
-        for (const di of (idx.nx.get(s.idx) || []))
-          out.push({ x: 0, y: s.y, dir: 'E', idx: di });
-      }
+  const seen = new Set();
+  for (const bt of blockTypesAt(s.x, s.y)) {
+    for (const d of (idx[bt].get(s.dir + s.idx) || [])) {
+      const k = d.dir + d.idx;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ x: s.x, y: s.y, dir: d.dir, idx: d.idx });
     }
-    /* Block (s.x + 1, s.y) — terminal W[s.idx] */
-    const bx = s.x + 1;
-    if (bx > 0 && s.y > 0) {
-      for (const d of (idx.normal.get('W' + s.idx) || [])) {
-        const ns = toCanonical(bx, s.y, d.dir, d.idx);
-        if (ns.x >= 0 && ns.y >= 0) out.push(ns);
-      }
-    }
-  } else {
-    /* Block (s.x, s.y) — terminal N[s.idx] */
-    if (s.x > 0) {
-      if (s.y > 0) {
-        for (const d of (idx.normal.get('N' + s.idx) || [])) {
-          const ns = toCanonical(s.x, s.y, d.dir, d.idx);
-          if (ns.x >= 0 && ns.y >= 0) out.push(ns);
-        }
-      } else {
-        for (const di of (idx.ny.get(s.idx) || []))
-          out.push({ x: s.x, y: 0, dir: 'N', idx: di });
-      }
-    }
-    /* Block (s.x, s.y + 1) — terminal S[s.idx] */
-    const by = s.y + 1;
-    if (s.x > 0 && by > 0) {
-      for (const d of (idx.normal.get('S' + s.idx) || [])) {
-        const ns = toCanonical(s.x, by, d.dir, d.idx);
-        if (ns.x >= 0 && ns.y >= 0) out.push(ns);
-      }
-    }
+  }
+  const cross = _CROSS_DIR[s.dir];
+  if (cross) {
+    const nx = s.x + cross.dx, ny = s.y + cross.dy;
+    if (nx >= 0 && ny >= 0)
+      out.push({ x: nx, y: ny, dir: cross.opp, idx: s.idx });
   }
   return out;
 }
-/* BFS from (0,1,E,0) to (0,1,E,1). Returns an array of states along the
+/* BFS from (0,0,W,0) to (0,0,W,1). Returns an array of states along the
  * shortest path, or null if unreachable within MAX_STATES. */
 function solveMaze(maze) {
   const idx = buildSolverIndex(maze);
-  const start = { x: 0, y: 1, dir: 'E', idx: 0 };
-  const goal  = { x: 0, y: 1, dir: 'E', idx: 1 };
+  const start = { x: 0, y: 0, dir: 'W', idx: 0 };
+  const goal  = { x: 0, y: 0, dir: 'W', idx: 1 };
   const keyOf = s => s.x + ',' + s.y + ',' + s.dir + s.idx;
   const visited = new Set([keyOf(start)]);
   const queue = [{ state: start, parent: -1 }];

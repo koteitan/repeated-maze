@@ -30,7 +30,7 @@ def parse_maze(text):
     """Parse the edge-terminal maze string.
     Returns dict {bt: list of (sd, si, dd, di, directed)}."""
     text = re.sub(r'^maze:\s*', '', text.strip(), flags=re.I)
-    sets = {'normal': [], 'nx': [], 'ny': []}
+    sets = {'normal': [], 'nx': [], 'ny': [], 'zero': []}
     for sec in text.split(';'):
         sec = sec.strip()
         if not sec:
@@ -59,15 +59,12 @@ def parse_maze(text):
 
 
 def block_types_at(x, y):
-    """Return the block-type port set names that apply at (x, y).
-    Corner (0, 0) consults BOTH nx and ny so paired zb='x' + zb='y'
-    rules (e.g. md's `(x, 0, p)=(x, 0, q)` chained with `(0, y, q)=
-    (0, y, r)`) can fire inside the corner cell.  Each Haskell pc
-    transition is still gated by the directed (*1) port chain, so the
-    extra port set doesn't introduce shortcuts that bypass the rule
-    sequence — it only fills in the corner's missing branches."""
+    """Return port-set names to consult at (x, y).  Catch-all rules
+    are duplicated into every set, so we read only the set matching
+    the block.  The corner (0, 0) is its own `zero` set (catch-all +
+    both zb='x' and zb='y' rules)."""
     if x == 0 and y == 0:
-        return ('nx', 'ny')
+        return ('zero',)
     if x == 0:
         return ('nx',)
     if y == 0:
@@ -166,7 +163,7 @@ def main():
 
     text = open(file_arg).read() if file_arg else sys.stdin.read()
     maze = parse_maze(text)
-    for bt in ('normal', 'nx', 'ny'):
+    for bt in ('normal', 'nx', 'ny', 'zero'):
         print(f"{bt}: {len(maze[bt])} ports", file=sys.stderr)
     path, n = bfs(maze, (0, 0, 'W', 0), 1, max_states)
     if path is None:
