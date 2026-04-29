@@ -444,22 +444,23 @@ class Compiler:
     # this tail, not the exit pc itself.
 
     def mul_p(self, p: int, exit_pc: int) -> int:
+        # Phase B drain (decy → incx*p → decy loop) naturally completes
+        # the final iteration's p INC x BEFORE the zb='y' check fires
+        # (zb='y' is on decy, which is re-entered after the inner incx
+        # loop closes).  No extra INC x is needed; ny port goes straight
+        # to exit_pc.
         entry = self.new_pc()
         incy = [self.new_pc() for _ in range(p)]
         s2_decy = self.new_pc()
         s2_incx = self.new_pc()
-        # ny tail: one INC x then exit (compensating for the skipped final
-        # iteration's INC x).
-        s2_final_incx = self.new_pc()
         self.emit(entry, -1, 0, incy[0])
         self.emit_nx(entry, s2_decy)
         for i in range(p):
             nxt = incy[i + 1] if i + 1 < p else entry
             self.emit(incy[i], 0, 1, nxt)
         self.emit(s2_decy, 0, -1, s2_incx)
-        self.emit_ny(s2_decy, s2_final_incx)
+        self.emit_ny(s2_decy, exit_pc)
         self.emit(s2_incx, 1, 0, s2_decy)
-        self.emit(s2_final_incx, 1, 0, exit_pc)
         return entry
 
     def div_p(self, p: int, exit_pc: int, trap_pc: int) -> int:
@@ -468,19 +469,22 @@ class Compiler:
         incy = self.new_pc()
         s2_decy = self.new_pc()
         s2_incx = self.new_pc()
-        s2_final_incx = self.new_pc()
         for i in range(p):
             nxt = decs[i + 1] if i + 1 < p else incy
             self.emit(decs[i], -1, 0, nxt)
             self.emit_nx(decs[i], s2_decy if i == 0 else trap_pc)
         self.emit(incy, 0, 1, decs[0])
         self.emit(s2_decy, 0, -1, s2_incx)
-        self.emit_ny(s2_decy, s2_final_incx)
+        self.emit_ny(s2_decy, exit_pc)
         self.emit(s2_incx, 1, 0, s2_decy)
-        self.emit(s2_final_incx, 1, 0, exit_pc)
         return entry
 
     def test_ndiv(self, p: int, pass_pc: int, fail_pc: int) -> int:
+        # Phase B (decy → incxs*p → decy) restores x by p per DEC y.  The
+        # natural loop completes its final iteration before zb='y' fires,
+        # so no ny tail is needed.  When k > 0 the partial-round remainder
+        # (k DECs that didn't reach a full round) is replayed by `extras`
+        # (k INC x's chained to exit_tgt).
         entry = self.new_pc()
         decs = [entry] + [self.new_pc() for _ in range(p - 1)]
         incy = self.new_pc()
@@ -490,22 +494,15 @@ class Compiler:
             decy = self.new_pc()
             incxs = [self.new_pc() for _ in range(p)]
             extras = [self.new_pc() for _ in range(k)]
-            # ny tail: p INC x's (the missed body of the final iteration),
-            # followed by the regular extras chain leading to exit_tgt.
-            ny_tail = [self.new_pc() for _ in range(p)]
+            ny_dst = extras[0] if k > 0 else exit_tgt
             self.emit(decy, 0, -1, incxs[0])
-            self.emit_ny(decy, ny_tail[0])
+            self.emit_ny(decy, ny_dst)
             for i in range(p):
                 nxt = incxs[i + 1] if i + 1 < p else decy
                 self.emit(incxs[i], 1, 0, nxt)
             for i in range(k):
                 nxt = extras[i + 1] if i + 1 < k else exit_tgt
                 self.emit(extras[i], 1, 0, nxt)
-            # ny tail: p INC x's, last one feeds into extras (or exit_tgt if k=0).
-            tail_exit = extras[0] if k > 0 else exit_tgt
-            for i in range(p):
-                nxt = ny_tail[i + 1] if i + 1 < p else tail_exit
-                self.emit(ny_tail[i], 1, 0, nxt)
             restores.append(decy)
         for i in range(p):
             nxt = decs[i + 1] if i + 1 < p else incy
