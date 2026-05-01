@@ -27,7 +27,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.26</span><!-- nd-to-2d fix: drop +1 ny tail in mul_p/div_p/test_ndiv --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.29</span><!-- draw C-subterm ports as diagonals + simple view 10x10 default --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -517,6 +517,9 @@ function drawNormal(maze, path, nterm, bounds, diagonal) {
     const deduped0 = [];
     const seen0 = new Set();
     for (const port of maze.normal) {
+      /* Lee subgrid only handles wall subterminals (W/E/N/S).
+       * 'C' (centre) subterms are drawn separately as diagonal lines. */
+      if (port.src.dir === 'C' || port.dst.dir === 'C') continue;
       const k1 = port.src.dir + port.src.idx + ',' + port.dst.dir + port.dst.idx;
       const k2 = port.dst.dir + port.dst.idx + ',' + port.src.dir + port.src.idx;
       if (seen0.has(k2)) continue;
@@ -750,14 +753,17 @@ function drawNormal(maze, path, nterm, bounds, diagonal) {
   /* nx / ny / zero ports are drawn together with normal ports above
    * (per block, picked by portsAtBlock).  In orthogonal mode the Lee
    * subgrid only routes the normal port set, so nx / ny / zero blocks
-   * fall back to diagonal-style lines here. */
+   * fall back to diagonal-style lines here. C-involved ports in normal
+   * blocks are also drawn as diagonal lines (Lee can't route to/from
+   * cell-centre subterminals). */
   if (!diagonal) {
     for (let bx = minX; bx <= maxX; bx++) {
       for (let by = minY; by <= maxY; by++) {
         if (bx < 0 || by < 0) continue;
-        if (bx >= 1 && by >= 1) continue;  /* normal: handled by Lee */
+        const isNormal = bx >= 1 && by >= 1;
         const bp = bpos(bx, by);
         for (const port of portsAtBlock(maze, bx, by)) {
+          if (isNormal && port.src.dir !== 'C' && port.dst.dir !== 'C') continue;
           const from = termLocalPos(port.src.dir, port.src.idx, nterm, CELL);
           const to = termLocalPos(port.dst.dir, port.dst.idx, nterm, CELL);
           const a = arrowCfg(port);
@@ -1021,13 +1027,16 @@ function drawSimple(path, bounds) {
   canvas.width = cssW;
   canvas.height = cssH;
   if (!simpleViewState.userControlled) {
-    const seedZoom = Math.max(0.1, Math.min(4, Math.min(
-      (cssW - 2 * PAD) / (cols * BASE_CELL_S),
-      (cssH - 2 * PAD) / (rows * BASE_CELL_S),
-    )));
+    /* Default view: a fixed 10x10 window centred on (5, 5), regardless
+     * of path bounds.  User can pan/zoom from there. */
+    const FIXED_SPAN = 10;
+    const seedZoom = Math.min(
+      (cssW - 2 * PAD) / (FIXED_SPAN * BASE_CELL_S),
+      (cssH - 2 * PAD) / (FIXED_SPAN * BASE_CELL_S),
+    );
     simpleViewState = {
-      cx: (minX + maxX + 1) / 2,
-      cy: (minY + maxY) / 2,
+      cx: FIXED_SPAN / 2,
+      cy: FIXED_SPAN / 2,
       zoom: seedZoom,
       userControlled: false,
     };
