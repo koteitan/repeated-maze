@@ -4,8 +4,8 @@ HS2D = $(KS:%=cp3-%-2d.hs)
 MAZES = $(KS:%=cp3-%.maze)
 
 HS2MAZE = ../../tools/hs2maze/hs2maze.py
-#HS2MAZE_FLAGS = --undirected
-HS2MAZE_FLAGS = 
+HS2MAZE_FLAGS = --undirected
+#HS2MAZE_FLAGS = 
 ND_TO_2D = ../../tools/nd-to-2d/nd-to-2d.py
 MAKE_CP3 = ./make-cp3.py
 
