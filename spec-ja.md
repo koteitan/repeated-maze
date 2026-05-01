@@ -79,12 +79,12 @@
 
 | ファイル | 役割 |
 |---|---|
-| `main.c` | CLI エントリポイント。サブコマンド `solve`、`search`、`norm` を振り分ける。オプション（`--bfs`、`--topdown`、`--max-aport` 等）を解析。 |
-| `maze.h` / `maze.c` | 迷路データ構造（normal/nx/ny ブロックのポート配列）、ポートアクセサ（型付きおよびフラットインデックス）、文字列パース/出力、ランダム化、正規化。 |
-| `solver.h` / `solver.c` | 最短経路ソルバー。`solve()` は置換表付き IDDFS。`solve_bfs()` は親ポインタ付き BFS でパス復元。`solve_bfs_len()` は長さのみ返す軽量 BFS。状態の正規化で W/S を E/N に統合。 |
-| `quizmaster.h` / `quizmaster.c` | 最短経路長を最大化する迷路の探索戦略。`quizmaster_search()`: ポート組合せの網羅的列挙。`quizmaster_random_search()`: シード指定可能なランダムサンプリング。`quizmaster_topdown_search()`: 全結合迷路からポートを除去、優先度スタックと正規化枝刈りを使用。 |
+| `tools/gen-maze/main.c` | CLI エントリポイント。サブコマンド `solve`、`search`、`norm` を振り分ける。オプション（`--bfs`、`--topdown`、`--max-aport` 等）を解析。 |
+| `tools/gen-maze/maze.h` / `maze.c` | 迷路データ構造（normal/nx/ny ブロックのポート配列）、ポートアクセサ（型付きおよびフラットインデックス）、文字列パース/出力、ランダム化、正規化。 |
+| `tools/gen-maze/solver.h` / `solver.c` | 最短経路ソルバー。`solve()` は置換表付き IDDFS。`solve_bfs()` は親ポインタ付き BFS でパス復元。`solve_bfs_len()` は長さのみ返す軽量 BFS。状態の正規化で W/S を E/N に統合。 |
+| `tools/gen-maze/quizmaster.h` / `quizmaster.c` | 最短経路長を最大化する迷路の探索戦略。`quizmaster_search()`: ポート組合せの網羅的列挙。`quizmaster_random_search()`: シード指定可能なランダムサンプリング。`quizmaster_topdown_search()`: 全結合迷路からポートを除去、優先度スタックと正規化枝刈りを使用。 |
 | `index.html` | ブラウザベースのビジュアライザ。迷路のポート構造とパスを canvas 上に描画。normal ビュー（ポート矢印付き完全グラフ）と x,y-only ビュー（単純な移動線）をサポート。 |
-| `Makefile` | ビルド設定。`make` で gcc -O2 により `repeated-maze` バイナリを生成。 |
+| `tools/gen-maze/Makefile` | ビルド設定。`cd tools/gen-maze && make` で gcc -O2 により `repeated-maze` バイナリを生成。 |
 
 ### サブコマンド
 

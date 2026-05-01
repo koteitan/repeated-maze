@@ -11,7 +11,7 @@ Haskell 風のステートマシン定義を繰り返し迷路のポート文字
 ```bash
 python3 hs2maze.py [input.hs]          # 迷路文字列を stdout に出力
 python3 hs2maze.py input.hs 2>/dev/null | xargs -I{} \
-  ../../repeated-maze solve '{}' --bfs -v  # 解いて検証
+  ../gen-maze/repeated-maze solve '{}' --bfs -v  # 旧形式のみ
 ```
 
 ファイルを指定しない場合は stdin から読む。診断情報は stderr に出力。

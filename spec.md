@@ -79,12 +79,12 @@ So, the total number of ports is (4*nterm)x(4*nterm) + 2*(nterm)x(nterm-1).
 
 | File | Role |
 |---|---|
-| `main.c` | CLI entry point. Dispatches subcommands: `solve`, `search`, `norm`. Parses options (`--bfs`, `--topdown`, `--max-aport`, etc.). |
-| `maze.h` / `maze.c` | Maze data structure (port arrays for normal/nx/ny blocks), port accessors (typed and flat-index), string parsing/printing, randomization, normalization. |
-| `solver.h` / `solver.c` | Shortest path solvers. `solve()` uses IDDFS with transposition table. `solve_bfs()` uses BFS with parent tracking for path reconstruction. `solve_bfs_len()` is a lightweight BFS returning length only. State canonicalization collapses W/S into E/N. |
-| `quizmaster.h` / `quizmaster.c` | Search strategies for finding the maze that maximizes shortest path length. `quizmaster_search()`: exhaustive enumeration over port combinations. `quizmaster_random_search()`: random sampling with configurable seed. `quizmaster_topdown_search()`: starts from fully-connected maze and removes ports, using priority stacks and normalization pruning. |
+| `tools/gen-maze/main.c` | CLI entry point. Dispatches subcommands: `solve`, `search`, `norm`. Parses options (`--bfs`, `--topdown`, `--max-aport`, etc.). |
+| `tools/gen-maze/maze.h` / `maze.c` | Maze data structure (port arrays for normal/nx/ny blocks), port accessors (typed and flat-index), string parsing/printing, randomization, normalization. |
+| `tools/gen-maze/solver.h` / `solver.c` | Shortest path solvers. `solve()` uses IDDFS with transposition table. `solve_bfs()` uses BFS with parent tracking for path reconstruction. `solve_bfs_len()` is a lightweight BFS returning length only. State canonicalization collapses W/S into E/N. |
+| `tools/gen-maze/quizmaster.h` / `quizmaster.c` | Search strategies for finding the maze that maximizes shortest path length. `quizmaster_search()`: exhaustive enumeration over port combinations. `quizmaster_random_search()`: random sampling with configurable seed. `quizmaster_topdown_search()`: starts from fully-connected maze and removes ports, using priority stacks and normalization pruning. |
 | `index.html` | Browser-based visualizer. Renders maze port structure and path on canvas. Supports normal view (full graph with port arrows) and x,y-only view (simple motion lines). |
-| `Makefile` | Build configuration. `make` compiles to `repeated-maze` binary with gcc -O2. |
+| `tools/gen-maze/Makefile` | Build configuration. `cd tools/gen-maze && make` compiles to the `repeated-maze` binary with gcc -O2. |
 
 ### Subcommands
 

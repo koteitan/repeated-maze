@@ -11,7 +11,7 @@ This provides a systematic way to encode any 2-register Minsky machine
 ```bash
 python3 hs2maze.py [input.hs]          # maze string to stdout
 python3 hs2maze.py input.hs 2>/dev/null | xargs -I{} \
-  ../../repeated-maze solve '{}' --bfs -v  # solve and verify
+  ../gen-maze/repeated-maze solve '{}' --bfs -v  # legacy-format only
 ```
 
 Reads from stdin if no file is given. Diagnostics go to stderr.

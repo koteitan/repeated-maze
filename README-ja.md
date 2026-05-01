@@ -8,7 +8,9 @@
 
 「繰り返し迷路」は、同一のブロックを無限2Dグリッド上にタイル状に敷き詰めたものです。各ブロックは4辺にターミナル（ポート）を持ち、隣接ブロックと接続します。プレイヤーは開始状態からゴール状態までポート接続を辿って移動します。目標は、最短経路長を最大化するポート割り当て（迷路構成）を見つけることです。
 
-`repeated-maze` は C 言語のコマンドラインツールで、**迷路ソルバー**と**迷路生成器**（クイズマスター）の両方の機能を持ちます。ソルバーは IDDFS または BFS で迷路の最短経路を求めます。クイズマスターは網羅的列挙、ランダムサンプリング、トップダウン枝刈りの戦略で最短経路長を最大化する迷路構成を探索します。ブラウザベースのインタラクティブビジュアライザ（`index.html`）で迷路とパスを描画できます。
+**メイン UI** はブラウザビューワー兼ソルバーの [`index.html`](index.html)。迷路文字列を貼り付ければ可視化と解探索ができます。新しい **atomic-port (*1) 形式**の迷路 (`hs2maze.py` 生成、`C` サブターミナル / `zero` ブロック / `W0-C0`・`C1-W1` ブリッジを含む) は、CLI からは Python 製の [solver.py](tools/solver/README-ja.md) で解きます。
+
+特定 nterm における最短経路長最大化の **maze generator 探索** ([tools/gen-maze](tools/gen-maze)) は C 言語実装で、網羅的列挙・ランダムサンプリング・トップダウン枝刈りの 3 戦略を持ちます (旧形式専用、(*1) 形式は未対応)。
 
 ## ドキュメント
 
@@ -18,17 +20,32 @@
     - [nterm=6 の例](maze/counter-pump/6-ja.md) — 6ターミナルのカウンターポンプの詳細解析（パス長 257）
   - [ミンスキーダブリングマシン](maze/minsky-doubling/README-ja.md) — レジスタマシン符号化による指数的パス長 O(2^{nterm/12})
     - [k=5 の例](maze/minsky-doubling/5-ja.md) — 5回反復のダブリングマシン（662ステップ）
-  - [hs2maze](tools/hs2maze/README-ja.md) — Haskell 風ステートマシン定義から迷路文字列への変換器
+- [ツール](tools/README-ja.md) — Haskell → 迷路 → 解 のパイプライン
+  - [hs2maze](tools/hs2maze/README-ja.md) — Haskell 風ステートマシン定義から atomic-port (*1) 迷路文字列への変換器
+  - [nd-to-2d](tools/nd-to-2d/README-ja.md) — *n* レジスタ Haskell から 2 レジスタ Gödel Haskell へのコンパイラ
+  - [runhs](tools/runhs/README-ja.md) — Haskell ステートマシンの実行ヘルパ
+  - [solver](tools/solver/README-ja.md) — atomic-port (*1) 形式の Python BFS ソルバ
 
-## ビルド
+## ビジュアライゼーション (メイン)
+
+`index.html` をブラウザで開くと、迷路とパスをインタラクティブに可視化・解析できます。
+新形式 (atomic-port (*1)) と旧形式の両方を読み込めます。
+
+## CLI ソルバ (新形式)
 
 ```bash
-make
+python3 tools/solver/solver.py FILE.maze
 ```
 
-## 使い方
+詳細は [tools/solver/README-ja.md](tools/solver/README-ja.md)。
+
+## maze generator 探索 (旧形式専用)
+
+`tools/gen-maze/` の C 実装でビルド・実行:
 
 ```bash
+cd tools/gen-maze && make
+
 # 迷路を解く
 ./repeated-maze solve '<maze_string>' [--bfs] [-v]
 
@@ -41,7 +58,3 @@ make
 # 迷路の正規化
 ./repeated-maze norm <nterm> '<maze_string>'
 ```
-
-## ビジュアライゼーション
-
-`index.html` をブラウザで開くと、迷路とパスをインタラクティブに可視化できます。

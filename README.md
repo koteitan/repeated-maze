@@ -8,7 +8,9 @@ Find the maze configurations that maximize the shortest path length, analogous t
 
 A "repeated maze" consists of identical blocks tiled across an infinite 2D grid. Each block has terminals (ports) on its four sides that connect to adjacent blocks. A player navigates from a start state to a goal state through these port connections. The challenge is to find the maze configuration (port assignment) that maximizes the length of the shortest path.
 
-`repeated-maze` is a C command-line tool that serves as both a **maze solver** and a **maze generator** (quizmaster). The solver finds the shortest path through a given maze using IDDFS or BFS. The quizmaster searches for maze configurations that maximize the shortest path length, using exhaustive enumeration, random sampling, or top-down pruning strategies. An interactive browser-based visualizer (`index.html`) renders mazes and paths.
+The **main UI** is the browser-based viewer/solver [`index.html`](index.html). Paste a maze string for interactive visualization and solving. From the CLI, the new **atomic-port (*1) maze format** emitted by `hs2maze.py` (with `C` subterminals, the `zero` block type, and `W0-C0` / `C1-W1` bridges) is solved by the Python [solver.py](tools/solver/README.md).
+
+The **maze generator search** that maximizes shortest path length for a given nterm lives at [tools/gen-maze](tools/gen-maze) (C implementation, three strategies: exhaustive enumeration, random sampling, top-down pruning). It is legacy-format only — (*1) mazes are not supported there.
 
 ## Documentation
 
@@ -18,17 +20,32 @@ A "repeated maze" consists of identical blocks tiled across an infinite 2D grid.
     - [nterm=6 Example](maze/counter-pump/6.md) — Counter pump with 6 terminals per side (path length 257)
   - [Minsky Doubling Machine](maze/minsky-doubling/README.md) — Exponential path length O(2^{nterm/12}) via register machine encoding
     - [k=5 Example](maze/minsky-doubling/5.md) — 5-iteration doubling machine (662 steps)
-  - [hs2maze](tools/hs2maze/README.md) — Converter from Haskell-style state machine definitions to maze strings
+- [Tools](tools/README.md) — Haskell → maze → solution pipeline
+  - [hs2maze](tools/hs2maze/README.md) — Haskell-style state machine to atomic-port (*1) maze converter
+  - [nd-to-2d](tools/nd-to-2d/README.md) — *n*-register to 2-register Gödel Haskell compiler
+  - [runhs](tools/runhs/README.md) — Haskell state machine execution helper
+  - [solver](tools/solver/README.md) — Python BFS solver for the atomic-port (*1) format
 
-## Building
+## Visualization (main UI)
+
+Open `index.html` in a browser to visualize and solve mazes interactively.
+Both the new (atomic-port (*1)) and the legacy formats are accepted.
+
+## CLI solver (new format)
 
 ```bash
-make
+python3 tools/solver/solver.py FILE.maze
 ```
 
-## Usage
+See [tools/solver/README.md](tools/solver/README.md) for details.
+
+## Maze generator search (legacy format only)
+
+Build and run the C implementation under `tools/gen-maze/`:
 
 ```bash
+cd tools/gen-maze && make
+
 # Solve a maze
 ./repeated-maze solve '<maze_string>' [--bfs] [-v]
 
@@ -41,7 +58,3 @@ make
 # Normalize a maze
 ./repeated-maze norm <nterm> '<maze_string>'
 ```
-
-## Visualization
-
-Open `index.html` in a browser to visualize mazes and paths interactively.

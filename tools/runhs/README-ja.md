@@ -18,6 +18,9 @@ python3 runhs.py FILE.hs --limit N   # N ステップ超で打ち切り
                                      # (デフォルト: 5_000_000)
 python3 runhs.py FILE.hs --save      # ラップ後の Haskell を入力の隣に
                                      # <ステム>_runable.hs として保存
+python3 runhs.py FILE.hs --start "(a, b, ..., pc)"
+                                     # 初期状態を明示指定 (旧 (0,1,0) 等)
+python3 runhs.py -V | --version
 ```
 
 ## 入力フォーマット
@@ -41,9 +44,10 @@ FN :: (Int, ..., Int) -> (Int, ..., Int)
 
 ## 初期状態と HALT
 
-- arity 2: `(0, 0)` から開始
-- arity 3: `(0, 1, 0)` — hs2maze の canonical 初期状態
-- arity ≥ 4: `(0, 1, 0, ..., 0, 0)` — x=0, y=1, 残り=0, pc=0
+デフォルトは全レジスタ 0 = `(0, 0, ..., 0)` (新 atomic-port 形式の
+`(0,0,W0)` maze start convention に対応)。`--start "(...)"` を渡せば
+明示指定でき、旧 `(0,1,0)` 想定のプログラム (古い hs2maze 出力) も
+そのまま走らせられる。
 
 ドライバは pc (タプル末尾) が 1 になった時点で停止し、
 `HALT <ステップ数> <状態>` を出力する。`--limit` 超過時は
@@ -56,8 +60,11 @@ $ python3 tools/runhs/runhs.py maze/counter-pump/cp2-4.hs
 HALT 48 (0,0,1)
 
 $ python3 tools/runhs/runhs.py maze/counter-pump/cp2-4.hs --trace | head -4
-0 (0,1,0)
+0 (0,0,0)
 1 (0,0,2)
 2 (1,0,3)
 3 (2,0,4)
+
+# 旧 (0,1,0) 開始想定のレガシー Haskell:
+$ python3 tools/runhs/runhs.py legacy.hs --start "(0,1,0)"
 ```

@@ -1,5 +1,5 @@
 *.o
-repeated-maze
+tools/gen-maze/repeated-maze
 
 # Logs
 *.log
