@@ -13,7 +13,7 @@ With --test, an extra witness register `o` is appended (3 registers + pc = 4 slo
 """
 import sys
 
-VERSION = "1.2"
+VERSION = "1.3"
 
 USAGE = """\
 Usage: make-cp2.py N [--test]
@@ -48,9 +48,15 @@ Options:
 def make(n, test=False):
     pc = 2
     p1 = list(range(pc, pc + n)); pc += n
+    # Two fresh forwarder pcs target p_outer with intra rules so the
+    # two non-zero rules into p_outer (Phase 1's last INC x and Phase 2's
+    # DEC x) don't share a `Wb`/`Eb` edge index after (*1) decomposition.
+    # This keeps the maze shortcut-free under --undirected.
+    p_outer_a = pc; pc += 1
     p_outer = pc; pc += 1
     p_inner = list(range(pc, pc + n)); pc += n
     p_decx = pc; pc += 1
+    p_outer_b = pc; pc += 1
     p_drain = pc; pc += 1
     halt_pc = pc; pc += 1
 
@@ -113,9 +119,12 @@ def make(n, test=False):
         f"-- Phase 1: x := {n}",
     ]
     for i, pc_i in enumerate(p1):
-        nxt = p1[i + 1] if i + 1 < n else p_outer
+        nxt = p1[i + 1] if i + 1 < n else p_outer_a
         out.append(rule(["x", "y"], ["x+1", "  y"], pc_i, nxt))
     out += [
+        "",
+        f"-- Forwarder pc={p_outer_a}: Phase 1 → outer entry (intra, no edge sharing)",
+        rule(["x", "y"], ["  x", "  y"], p_outer_a, p_outer),
         "",
         f"-- Phase 2 outer (pc={p_outer}): zero-branch goes to drain, else noop",
         rule(["0", "y"], ["  0", "  y"], p_outer, p_drain),
@@ -129,7 +138,10 @@ def make(n, test=False):
     out += [
         "",
         f"-- Phase 2 DEC x (pc={p_decx})",
-        rule(["x", "y"], ["x-1", "  y"], p_decx, p_outer),
+        rule(["x", "y"], ["x-1", "  y"], p_decx, p_outer_b),
+        "",
+        f"-- Forwarder pc={p_outer_b}: Phase 2 DEC x → outer entry (intra)",
+        rule(["x", "y"], ["  x", "  y"], p_outer_b, p_outer),
         "",
         f"-- Phase 3 drain y (pc={p_drain})",
         rule(["x", "0"], ["  x", "  0"], p_drain, halt_pc),

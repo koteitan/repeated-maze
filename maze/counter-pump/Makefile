@@ -3,7 +3,7 @@ HS = $(KS:%=cp2-%.hs)
 MAZES = $(KS:%=cp2-%.maze)
 
 HS2MAZE = ../../tools/hs2maze/hs2maze.py
-HS2MAZE_FLAGS = 
+HS2MAZE_FLAGS = --undirected
 MAKE_CP2 = ./make-cp2.py
 
 all: $(HS) $(MAZES)
