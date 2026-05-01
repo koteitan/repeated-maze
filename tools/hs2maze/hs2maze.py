@@ -49,7 +49,7 @@ import re
 import sys
 
 
-VERSION = "1.0"
+VERSION = "2.0"
 
 HELP_TEXT = """hs2maze v{version} -- Haskell state machine -> repeated-maze.
 

@@ -46,7 +46,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Union
 
 
-VERSION = "0.1"
+VERSION = "0.2"
 
 HELP_TEXT = """\
 Usage: nd-to-2d.py [FILE] [--parse | --ast]

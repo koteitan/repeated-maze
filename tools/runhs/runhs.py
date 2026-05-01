@@ -131,9 +131,15 @@ def rewrite(text: str, arity: int, trace: bool, start_override: str | None = Non
     return "\n".join(lines_out) + "\n"
 
 
+VERSION = "1.0"
+
+
 def main() -> None:
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print(__doc__)
+        sys.exit(0)
+    if sys.argv[1] in ("-V", "--version"):
+        print(f"runhs.py v{VERSION}")
         sys.exit(0)
 
     path = sys.argv[1]
