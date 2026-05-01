@@ -67,10 +67,11 @@ def parse_arity(text: str) -> int | None:
     return None
 
 
-def rewrite(text: str, arity: int, trace: bool) -> str:
+def rewrite(text: str, arity: int, trace: bool, start_override: str | None = None) -> str:
     """Rewrite the Haskell into a step-function form + driver.
 
     trace=True -> print every intermediate state.
+    start_override = explicit "(..., ..., ...)" tuple (or None for default).
     """
     lines_out: list[str] = []
     step_name = "fnStep"
@@ -103,15 +104,13 @@ def rewrite(text: str, arity: int, trace: bool) -> str:
     ) + ")"
     lines_out.append(f"{step_name} {halt_pat} = {halt_rhs}")
 
-    # Driver.  Initial state = (0, 1, 0, ..., 0, 0) — x=0, y=1, the rest 0, pc=0.
-    init_vals = ["0", "1"] + ["0"] * (arity - 3) + ["0"] if arity >= 3 else ["0", "1", "0"][:arity]
-    if arity == 2:
-        # (x, pc) — no y slot. Still use (0, 0) to pick a reasonable default.
-        init_vals = ["0", "0"]
-    elif arity >= 3:
-        # (r_0, r_1, r_2, ..., r_{n-2}, pc) — use (0, 1, 0, ..., 0, 0)
-        init_vals = ["0", "1"] + ["0"] * (arity - 3) + ["0"]
-    init_tuple = "(" + ", ".join(init_vals) + ")"
+    # Driver.  Default initial state = (0, 0, 0, ..., 0) matching the
+    # new (0,0,W0) maze start convention.  Override with --start "(...)"
+    # for legacy programs that expect e.g. (0, 1, 0, ..., 0).
+    if start_override is not None:
+        init_tuple = start_override
+    else:
+        init_tuple = "(" + ", ".join(["0"] * arity) + ")"
 
     lines_out.append("")
     lines_out.append("main :: IO ()")
@@ -141,9 +140,12 @@ def main() -> None:
     trace = "--trace" in sys.argv
     save = "--save" in sys.argv
     limit = 5_000_000
+    start_override: str | None = None
     for i, a in enumerate(sys.argv):
         if a == "--limit" and i + 1 < len(sys.argv):
             limit = int(sys.argv[i + 1])
+        elif a == "--start" and i + 1 < len(sys.argv):
+            start_override = sys.argv[i + 1]
 
     with open(path) as f:
         text = f.read()
@@ -153,7 +155,7 @@ def main() -> None:
         print(f"runhs.py: could not detect tuple arity in {path}", file=sys.stderr)
         sys.exit(2)
 
-    wrapped = rewrite(text, arity, trace).replace("LIMIT_SENTINEL", str(limit))
+    wrapped = rewrite(text, arity, trace, start_override).replace("LIMIT_SENTINEL", str(limit))
 
     tmp = tempfile.NamedTemporaryFile(
         mode="w", suffix=".hs", delete=False, prefix="runhs_"

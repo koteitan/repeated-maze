@@ -13,7 +13,7 @@ Usage: python3 make-minsky-doubling.py N [--test] > mdN.hs
 """
 import sys
 
-VERSION = "1.3"
+VERSION = "1.4"
 
 USAGE = """\
 Usage: make-minsky-doubling.py N [--test]
@@ -23,10 +23,12 @@ Usage: make-minsky-doubling.py N [--test]
 Generate mdN.hs, a 2-register Minsky-style doubling machine that runs
 N cycles of a "INC-x-twice-while-DEC-y, then transfer x→y" subroutine.
 The output is a tail-recursive `md :: (Int, Int, Int) -> ...` definition
-with state slots (x, y, pc), starting at (0, 1, 0) and halting at
-(0, 0, 1).  Zero-branch rules (`(x, 0, ...)` and `(0, y, ...)`) are
-emitted, so feeding the file directly to hs2maze.py auto-generates the
-required nx / ny / bridge ports.
+with state slots (x, y, pc), starting at (0, 0, 0) and halting at
+(0, 0, 1).  pc=0 is a Phase-0 INC y that seeds y := 1 before cycle 0
+begins (matches the new (0,0,W0) maze start convention).  Zero-branch
+rules (`(x, 0, ...)` and `(0, y, ...)`) are emitted so feeding the file
+directly to hs2maze.py auto-generates the required nx / ny / zero
+ports.
 
 Internally each cycle does:
   S:   y-1 → S+1           -- dec y, then to INC-x pair; ny: y=0 → S+3
@@ -65,11 +67,11 @@ def make(k, test=False):
 
     if test:
         sig = "md :: (Int, Int, Int, Int) -> (Int, Int, Int, Int)"
-        start = "(0, 1, 0, 0)"
+        start = "(0, 0, 0, 0)"
         goal = f"(0, 0, {expected_o}, 1)"
     else:
         sig = "md :: (Int, Int, Int) -> (Int, Int, Int)"
-        start = "(0, 1, 0)"
+        start = "(0, 0, 0)"
         goal = "(0, 0, 1)"
 
     def rule(lhs_x, lhs_y, rhs_x, rhs_y, pc_lhs, pc_rhs, inc_o=False, halt=False):
@@ -123,16 +125,20 @@ def make(k, test=False):
         lines.append("")
 
     lines.append(sig)
+    lines.append("")
+    # Phase 0 (pc=0): INC y from 0 to 1 to seed the doubling chain, then
+    # jump to cycle 0 entry.  Single catch-all rule — at maze start
+    # (0,0,W0) the walker bridges to C0 in the zero block and INCs y.
+    cycle_S = [5 * ci + 2 for ci in range(k)]  # cycle 0 at pc=2, cycle 1 at 7, ...
+    D = 5 * k + 2
+    lines.append(f"-- Phase 0 (pc=0): INC y to seed y := 1, goto cycle 0")
+    lines.append(rule("x", "y", "  x", "y+1", 0, cycle_S[0]))
 
     # Cycles
     for ci in range(k):
-        if ci == 0:
-            S = 0
-            pcs = [0, 2, 3, 4, 5]
-        else:
-            S = 5 * ci + 1
-            pcs = [S, S+1, S+2, S+3, S+4]
-        next_S = 5 * (ci + 1) + 1 if ci < k - 1 else 5 * k + 1  # next cycle or drain
+        S = cycle_S[ci]
+        pcs = [S, S+1, S+2, S+3, S+4]
+        next_S = cycle_S[ci + 1] if ci < k - 1 else D
         lines.append("")
         lines.append(f"-- Cycle {ci} (Y={y_seq[ci]} → {y_seq[ci+1]}); xfer at pc={pcs[3]}, exit to pc={next_S}")
         # ny zero-branch FIRST (so Haskell pattern match picks literal 0 before var).
@@ -147,7 +153,6 @@ def make(k, test=False):
         lines.append(rule("x", "y", "  x", "y+1", pcs[4], pcs[3]))             # INC y (transfer)
 
     # Drain
-    D = 5 * k + 1
     lines.append("")
     lines.append(f"-- Drain (pc={D}): DEC y to 0, then ny → HALT (bare-tuple base case)")
     lines.append(rule("x", "0", "  x", "  0", D, 1, halt=True))                 # ny drain → HALT base case
