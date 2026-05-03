@@ -49,7 +49,7 @@ import re
 import sys
 
 
-VERSION = "2.0"
+VERSION = "2.1"
 
 HELP_TEXT = """hs2maze v{version} -- Haskell state machine -> repeated-maze.
 
@@ -58,6 +58,8 @@ Usage:
   python3 hs2maze.py [FILE] --undirected     undirected `-`, C terminals kept
   python3 hs2maze.py [FILE] --daisy          undirected `-`, C terminals dropped
                                              via the daisy-chain pass
+  python3 hs2maze.py [FILE] --no-simplify    keep all C terminals (skip the
+                                             low-degree C simplifier)
   python3 hs2maze.py [FILE] -v               pretty-print rules to stderr
   python3 hs2maze.py --help | -h             show this help
   python3 hs2maze.py --version | -V          show version and exit
@@ -78,6 +80,17 @@ circuits via reversed ports, so path length flattens to O(k).
 --daisy applies the daisy-chain pass after (*1) decomposition: drops C
 terminals, chains W/E/N/S terms in CCW order, also flattens to O(k).
 Useful when downstream tooling can't parse C terminals.
+
+After (*1) decomposition, redundant C terminals (idx >= 2; C0 / C1
+are protected as bridge endpoints) are simplified by default per
+block-type independently (pass --no-simplify to skip):
+  in=1, out=1  bridge X->C->Y into X->Y
+  in=1, out=0  drop the lone in port
+  in=0, out=1  drop the lone out port
+  in=2, out=0  drop both in ports
+  in=0, out=2  drop both out ports
+Iterated to fixed point, then surviving C indices >= 2 are renumbered
+contiguously.
 """.format(version=VERSION)
 
 
@@ -248,6 +261,80 @@ def daisy_chain(ports):
     return new_ports
 
 
+def simplify_c_terminals(ports):
+    """Per-block-type simplification of C terminals (idx >= 2).
+    Treats every (sd, si, dd, di) tuple as a directed edge.
+
+    Rules (per C terminal, fixed-point iterated):
+      in=1, out=1  -> replace [X->C, C->Y] with [X->Y]
+      in=1, out=0  -> drop the lone incoming port
+      in=0, out=1  -> drop the lone outgoing port
+      in=2, out=0  -> drop both incoming ports
+      in=0, out=2  -> drop both outgoing ports
+    Other degree combinations leave the C terminal in place.
+
+    C0 and C1 are bridge endpoints (W0->C0 entry, C1->W1 exit) and are
+    never removed or renumbered.  After the rewrite, surviving C indices
+    >= 2 are renumbered to be contiguous starting from 2.  Self-loops
+    (X-X) carry no information and are dropped up front."""
+    ports = [(sd, si, dd, di) for sd, si, dd, di in ports
+             if not (sd == dd and si == di)]
+    while True:
+        c_in, c_out = {}, {}
+        for i, (sd, si, dd, di) in enumerate(ports):
+            if dd == 'C' and di >= 2:
+                c_in.setdefault(di, []).append(i)
+            if sd == 'C' and si >= 2:
+                c_out.setdefault(si, []).append(i)
+        target = None
+        for c_idx in sorted(set(c_in) | set(c_out)):
+            n_in = len(c_in.get(c_idx, ()))
+            n_out = len(c_out.get(c_idx, ()))
+            if (n_in, n_out) in {(1, 1), (1, 0), (0, 1), (2, 0), (0, 2)}:
+                target = c_idx
+                break
+        if target is None:
+            break
+        ins = c_in.get(target, [])
+        outs = c_out.get(target, [])
+        to_remove = sorted(set(ins + outs), reverse=True)
+        if len(ins) == 1 and len(outs) == 1:
+            sd_in, si_in, _, _ = ports[ins[0]]
+            _, _, dd_out, di_out = ports[outs[0]]
+            new_port = (sd_in, si_in, dd_out, di_out)
+            for j in to_remove:
+                del ports[j]
+            # Skip the merged port if it collapses into a self-loop.
+            if not (new_port[0] == new_port[2] and new_port[1] == new_port[3]):
+                ports.append(new_port)
+        else:
+            for j in to_remove:
+                del ports[j]
+    used = set()
+    for sd, si, dd, di in ports:
+        if sd == 'C':
+            used.add(si)
+        if dd == 'C':
+            used.add(di)
+    others = sorted(i for i in used if i >= 2)
+    idx_map = {0: 0, 1: 1}
+    next_new = 2
+    for old in others:
+        idx_map[old] = next_new
+        next_new += 1
+    if any(idx_map[k] != k for k in idx_map):
+        ports = [
+            (
+                sd,
+                idx_map[si] if sd == 'C' and si in idx_map else si,
+                dd,
+                idx_map[di] if dd == 'C' and di in idx_map else di,
+            )
+            for sd, si, dd, di in ports
+        ]
+    return ports
+
+
 def render_undirected(ports):
     seen = set()
     out = []
@@ -278,6 +365,7 @@ def main():
     args = sys.argv[1:]
     daisy = False
     undirected = False
+    no_simplify = False
     verbose = False
     file_arg = None
     for a in args:
@@ -291,6 +379,8 @@ def main():
             daisy = True
         elif a == '--undirected':
             undirected = True
+        elif a == '--no-simplify':
+            no_simplify = True
         elif a in ('-v', '--verbose'):
             verbose = True
         else:
@@ -323,6 +413,12 @@ def main():
     for bt in ('normal', 'nx', 'ny', 'zero'):
         sets[bt].append(('W', 0, 'C', 0))   # entry: W0 -> C0
         sets[bt].append(('C', 1, 'W', 1))   # exit:  C1 -> W1
+
+    # Simplify low-degree C terminals (idx >= 2) per block type by
+    # default.  C0 / C1 are protected (start/goal bridge endpoints).
+    # --no-simplify keeps the raw (*1) decomposition.
+    if not no_simplify:
+        sets = {bt: simplify_c_terminals(ports) for bt, ports in sets.items()}
 
     if daisy:
         # Daisy-chain pass drops C terminals AND collapses multi-rule

@@ -27,7 +27,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.32</span><!-- preset dropdown points at current .maze files --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.33</span><!-- simplify low-degree C terminals + cell-centre angular spacing --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -172,23 +172,43 @@ function parsePath(text) {
 function detectNterm(maze, path) {
   let nterm = 2;
   for (const ports of [maze.normal, maze.nx, maze.ny, maze.zero])
-    for (const p of (ports || []))
-      nterm = Math.max(nterm, p.src.idx + 1, p.dst.idx + 1);
+    for (const p of (ports || [])) {
+      if (p.src.dir !== 'C') nterm = Math.max(nterm, p.src.idx + 1);
+      if (p.dst.dir !== 'C') nterm = Math.max(nterm, p.dst.idx + 1);
+    }
   for (const s of path)
-    nterm = Math.max(nterm, s.idx + 1);
+    if (s.dir !== 'C') nterm = Math.max(nterm, s.idx + 1);
   return nterm;
+}
+
+/* C subterminals live in their own namespace, distinct from W/E/N/S.
+ * Their count drives the angular spacing on the cell-centre circle, so
+ * detect them separately from the wall-side nterm. */
+function detectNCterm(maze, path) {
+  let n = 2;
+  for (const ports of [maze.normal, maze.nx, maze.ny, maze.zero])
+    for (const p of (ports || [])) {
+      if (p.src.dir === 'C') n = Math.max(n, p.src.idx + 1);
+      if (p.dst.dir === 'C') n = Math.max(n, p.dst.idx + 1);
+    }
+  for (const s of path)
+    if (s.dir === 'C') n = Math.max(n, s.idx + 1);
+  return n;
 }
 
 /* ---- Geometry helpers ---- */
 
-function termLocalPos(dir, idx, nterm, cellSize) {
+function termLocalPos(dir, idx, nterm, cellSize, nCterm) {
   if (dir === 'C') {
-    /* Place C0..C[nterm-1] on a circle of radius cellSize*(3/8)
+    /* Place C0..C[nCterm-1] on a circle of radius cellSize*(3/8)
      * centred on the cell, starting at angle 3pi/4 and advancing
-     * clockwise so C0 lands in the upper-left quadrant. */
-    if (nterm <= 1) return { x: cellSize / 2, y: cellSize / 2 };
+     * clockwise so C0 lands in the upper-left quadrant. nCterm is the
+     * count of distinct C indices in the maze; falls back to nterm if
+     * not provided (legacy callers). */
+    const n = nCterm != null ? nCterm : nterm;
+    if (n <= 1) return { x: cellSize / 2, y: cellSize / 2 };
     const r = cellSize * 3 / 8;
-    const theta = (3 * Math.PI / 4) + (2 * Math.PI * idx / nterm);
+    const theta = (3 * Math.PI / 4) + (2 * Math.PI * idx / n);
     return {
       x: cellSize / 2 + r * Math.cos(theta),
       y: cellSize / 2 + r * Math.sin(theta),
@@ -474,7 +494,7 @@ function setupCanvas(canvasId, wrapId, bounds) {
 
 /* ---- Draw normal view ---- */
 
-function drawNormal(maze, path, nterm, bounds, diagonal) {
+function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
   const setup = setupCanvas('canvas', 'canvas-wrap', bounds);
   const { ctx, bpos, CELL, MARGIN, S, hlineBetween, vlineBetween } = setup;
   /* Visible block range (respects pan/zoom viewState). All per-block
@@ -580,7 +600,7 @@ function drawNormal(maze, path, nterm, bounds, diagonal) {
           return { x: bp.x + gridTermPos[sk].x, y: bp.y };
       }
     }
-    const tp = termLocalPos(s.dir, s.idx, nterm, CELL);
+    const tp = termLocalPos(s.dir, s.idx, nterm, CELL, nCterm);
     return { x: bp.x + tp.x, y: bp.y + tp.y };
   }
 
@@ -720,8 +740,8 @@ function drawNormal(maze, path, nterm, bounds, diagonal) {
         if (bx < 0 || by < 0) continue;
         const bp = bpos(bx, by);
         for (const port of portsAtBlock(maze, bx, by)) {
-          const from = termLocalPos(port.src.dir, port.src.idx, nterm, CELL);
-          const to = termLocalPos(port.dst.dir, port.dst.idx, nterm, CELL);
+          const from = termLocalPos(port.src.dir, port.src.idx, nterm, CELL, nCterm);
+          const to = termLocalPos(port.dst.dir, port.dst.idx, nterm, CELL, nCterm);
           const a = arrowCfg(port);
           drawPortDiag(bp.x + from.x, bp.y + from.y, bp.x + to.x, bp.y + to.y,
                    port.src.dir === port.dst.dir, port.src.dir, a.src, a.dst);
@@ -767,8 +787,8 @@ function drawNormal(maze, path, nterm, bounds, diagonal) {
         const bp = bpos(bx, by);
         for (const port of portsAtBlock(maze, bx, by)) {
           if (isNormal && port.src.dir !== 'C' && port.dst.dir !== 'C') continue;
-          const from = termLocalPos(port.src.dir, port.src.idx, nterm, CELL);
-          const to = termLocalPos(port.dst.dir, port.dst.idx, nterm, CELL);
+          const from = termLocalPos(port.src.dir, port.src.idx, nterm, CELL, nCterm);
+          const to = termLocalPos(port.dst.dir, port.dst.idx, nterm, CELL, nCterm);
           const a = arrowCfg(port);
           drawPortDiag(bp.x + from.x, bp.y + from.y, bp.x + to.x, bp.y + to.y,
                    port.src.dir === port.dst.dir, port.src.dir, a.src, a.dst);
@@ -1220,6 +1240,7 @@ function draw() {
   const maze = parseMaze(document.getElementById('maze-input').value);
   const path = parsePath(document.getElementById('answer-input').value);
   const nterm = detectNterm(maze, path);
+  const nCterm = detectNCterm(maze, path);
   const bounds = computeBounds(path);
   const showNormal = document.getElementById('chk-normal').checked;
   const showSimple = document.getElementById('chk-simple').checked;
@@ -1232,7 +1253,7 @@ function draw() {
    * from there); drawSimple keeps the full-path bounds so the xy-only
    * overview still shows the whole path. */
   const normalBounds = computeDefaultNormalBounds(path);
-  if (showNormal) drawNormal(maze, path, nterm, normalBounds, diagonal);
+  if (showNormal) drawNormal(maze, path, nterm, normalBounds, diagonal, nCterm);
   if (showSimple) drawSimple(path, bounds);
 }
 
