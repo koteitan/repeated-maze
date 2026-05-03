@@ -49,19 +49,20 @@ import re
 import sys
 
 
-VERSION = "2.2"
+VERSION = "2.3"
 
 HELP_TEXT = """hs2maze v{version} -- Haskell state machine -> repeated-maze.
 
 Usage:
-  python3 hs2maze.py [FILE]                  default: undirected `-`, daisy-chain
-                                             pass drops C terminals
-  python3 hs2maze.py [FILE] --undirected     undirected `-`, C terminals kept
-                                             (no daisy chain)
+  python3 hs2maze.py [FILE]                  default: undirected `-`, simplify
+                                             + daisy-chain (drops C terminals)
   python3 hs2maze.py [FILE] --daisy          alias for the default
-  python3 hs2maze.py [FILE] --no-simplify    raw (*1) decomposition: directed
-                                             `->`, C terminals kept, no daisy
-                                             chain, no low-degree simplifier
+  python3 hs2maze.py [FILE] --no-simplify    undirected `-`, raw (*1) decomp:
+                                             skip simplify and daisy chain
+                                             (keeps every C terminal)
+  python3 hs2maze.py [FILE] --directed       directed `->` raw (*1) decomp;
+                                             implies --no-simplify (no
+                                             simplifier, no daisy chain)
   python3 hs2maze.py [FILE] -v               pretty-print rules to stderr
   python3 hs2maze.py --help | -h             show this help
   python3 hs2maze.py --version | -V          show version and exit
@@ -71,24 +72,24 @@ Output (stdout): a single maze line `normal: <ports>; nx: <ports>; ny: <ports>; 
 Default mode applies the daisy-chain pass after (*1) decomposition:
 drops C terminals (idx >= 2 — bridge endpoints C0 / C1 still appear
 through the W0-C0 / C1-W1 entries), chains W/E/N/S terms in CCW order,
-and emits undirected `-` ports.  BFS path length flattens to O(k) since
-direction is dropped, but the maze becomes parsable by tools that
-cannot handle C subterminals.
+and emits undirected `-` ports.  BFS path length flattens to O(k)
+since direction is dropped, but the maze becomes parsable by tools
+that cannot handle C subterminals.
 
---undirected keeps C terminals but drops direction (no daisy chain).
-Useful when you want a visualizer to show C subterminals while still
-allowing reversed traversal in BFS.
+--no-simplify keeps every C terminal in undirected form (no daisy
+chain, no low-degree simplifier).  Useful for visual debugging of the
+raw (*1) decomposition.
 
---no-simplify outputs the raw (*1) decomposition: directed `->`, C
-terminals kept, no daisy chain, no low-degree C simplifier.  Path
-length matches the Haskell step count up to a constant factor (O(k^2)
-for cp2-k, O(2^k) for md-k).  The two bridges `W0->C0` (entry) and
-`C1->W1` (exit) anchor the maze start (0,0,W0) / goal (0,0,W1) to the
-Haskell-level (0,0,C0) / (0,0,C1).
+--directed emits the raw directed `->` decomposition.  --no-simplify
+is forced on (the simplifier and daisy chain would lose the directional
+information).  Path length matches the Haskell step count up to a
+constant factor (O(k^2) for cp2-k, O(2^k) for md-k).  The two bridges
+`W0->C0` (entry) and `C1->W1` (exit) anchor the maze start (0,0,W0) /
+goal (0,0,W1) to the Haskell-level (0,0,C0) / (0,0,C1).
 
-Without --no-simplify, redundant C terminals (idx >= 2; C0 / C1 are
-protected as bridge endpoints) are reduced per block-type independently
-before the daisy chain (when applicable):
+In default and --daisy modes, redundant C terminals (idx >= 2; C0 /
+C1 are protected as bridge endpoints) are reduced per block-type
+independently before the daisy chain:
   in=1, out=1  bridge X->C->Y into X->Y
   in=1, out=0  drop the lone in port
   in=0, out=1  drop the lone out port
@@ -368,9 +369,9 @@ def render_directed(ports):
 
 def main():
     args = sys.argv[1:]
-    # Default: daisy chain on (drops C terminals, undirected output).
+    # Default pipeline: simplify -> daisy chain -> undirected `-`.
     daisy = True
-    undirected = False
+    directed = False
     no_simplify = False
     verbose = False
     file_arg = None
@@ -383,14 +384,21 @@ def main():
             return
         if a == '--daisy':
             daisy = True
-        elif a == '--undirected':
-            undirected = True
+        elif a == '--directed':
+            # --directed always emits the raw (*1) decomposition.
+            # Simplifier and daisy chain would erase directional
+            # information, so they are forced off.
+            directed = True
+            no_simplify = True
             daisy = False
         elif a == '--no-simplify':
             no_simplify = True
             daisy = False
         elif a in ('-v', '--verbose'):
             verbose = True
+        elif a.startswith('-'):
+            print(f"hs2maze: unknown option '{a}' (use --help)", file=sys.stderr)
+            sys.exit(2)
         else:
             file_arg = a
 
@@ -431,20 +439,12 @@ def main():
     if daisy:
         # Default: daisy-chain pass drops C terminals AND collapses
         # multi-rule chains into one short CCW chain, so path-length
-        # growth flattens to O(k).  Output is undirected (`-`).
+        # growth flattens to O(k).
         sets = {bt: daisy_chain(ports) for bt, ports in sets.items()}
-        renderer = render_undirected
-    elif undirected:
-        # --undirected: keep C terminals but render `-` (no daisy chain).
-        # BFS finds shortest path regardless of Haskell flow, so path
-        # length is also linear in k — useful for visual debugging.
-        renderer = render_undirected
-    else:
-        # --no-simplify: directed `->` so each (*1) edge is one-way and
-        # the walker has to follow the Haskell rule chain.  Path length
-        # matches the Haskell step count up to a constant factor and
-        # preserves O(k^2) for cp2-k / O(2^k) for md-k.
-        renderer = render_directed
+
+    # Output is undirected unless --directed was passed (which forces
+    # --no-simplify so the (*1) decomposition is the raw one-way graph).
+    renderer = render_directed if directed else render_undirected
 
     if verbose:
         for bt in ('normal', 'nx', 'ny', 'zero'):
