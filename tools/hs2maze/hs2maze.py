@@ -49,7 +49,7 @@ import re
 import sys
 
 
-VERSION = "2.3"
+VERSION = "2.4"
 
 HELP_TEXT = """hs2maze v{version} -- Haskell state machine -> repeated-maze.
 
@@ -96,7 +96,11 @@ independently before the daisy chain:
   in=2, out=0  drop both in ports
   in=0, out=2  drop both out ports
 Iterated to fixed point, then surviving C indices >= 2 are renumbered
-contiguously.
+contiguously.  After that, single-port wall subterminals that point
+outside the maze are dropped (one pass):
+  ny / zero block: drop S subterminals seen in only one port
+  nx / zero block: drop W subterminals seen in only one port
+                   (W0 / W1 are preserved as start / goal endpoints)
 """.format(version=VERSION)
 
 
@@ -341,6 +345,44 @@ def simplify_c_terminals(ports):
     return ports
 
 
+def simplify_wall_terminals(ports, block_type):
+    """Drop wall subterminals whose direction points outside the maze
+    when they appear in exactly one port.  Iterated to a fixed point so
+    a chain whose every entry points outside (e.g. a daisy-chained
+    W71-W118 stub in a `nx` block) is wholly removed.
+
+    - In `ny` / `zero` blocks (y == 0 strip), an S subterminal would
+      target the y == -1 row, which is outside the maze.
+    - In `nx` / `zero` blocks (x == 0 strip), a W subterminal points
+      outside (x == -1).  W0 and W1 are the maze start / goal endpoints
+      and must be preserved; other one-port W terminals are dropped."""
+    drop_dirs = set()
+    if block_type in ('ny', 'zero'):
+        drop_dirs.add('S')
+    if block_type in ('nx', 'zero'):
+        drop_dirs.add('W')
+    if not drop_dirs:
+        return ports
+    while True:
+        counts = {}
+        for sd, si, dd, di in ports:
+            counts[(sd, si)] = counts.get((sd, si), 0) + 1
+            counts[(dd, di)] = counts.get((dd, di), 0) + 1
+        drop = set()
+        for (d, i), n in counts.items():
+            if d not in drop_dirs or n != 1:
+                continue
+            if d == 'W' and i in (0, 1):
+                continue
+            drop.add((d, i))
+        if not drop:
+            return ports
+        ports = [
+            (sd, si, dd, di) for sd, si, dd, di in ports
+            if (sd, si) not in drop and (dd, di) not in drop
+        ]
+
+
 def render_undirected(ports):
     seen = set()
     out = []
@@ -441,6 +483,14 @@ def main():
         # multi-rule chains into one short CCW chain, so path-length
         # growth flattens to O(k).
         sets = {bt: daisy_chain(ports) for bt, ports in sets.items()}
+
+    if not no_simplify:
+        # Drop one-port wall subterminals that point outside the maze
+        # (S in y=0 strip, W in x=0 strip; W0/W1 protected).  Run after
+        # the daisy chain so the dead stubs it can produce
+        # (e.g. zero-block W71-W118 with both ends one-port) are pruned.
+        sets = {bt: simplify_wall_terminals(ports, bt)
+                for bt, ports in sets.items()}
 
     # Output is undirected unless --directed was passed (which forces
     # --no-simplify so the (*1) decomposition is the raw one-way graph).
