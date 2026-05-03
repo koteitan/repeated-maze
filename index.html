@@ -27,7 +27,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.31</span><!-- straight answer-path for non-Lee-routed ports --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.32</span><!-- preset dropdown points at current .maze files --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -54,10 +54,13 @@ try {
   <label class="preset-label">Preset: <select id="preset-select">
     <option value="">(select)</option>
     <option value="clear">clear</option>
-    <option value="cp6">6th counter pump</option>
-    <option value="md3">3rd minsky doubling</option>
-    <option value="md4">4th minsky doubling</option>
-    <option value="md5">5th minsky doubling</option>
+    <option value="cp2-4">counter pump cp2-4</option>
+    <option value="cp2-5">counter pump cp2-5</option>
+    <option value="cp2-6">counter pump cp2-6</option>
+    <option value="md3">minsky doubling md3</option>
+    <option value="md4">minsky doubling md4</option>
+    <option value="md5">minsky doubling md5</option>
+    <option value="cp3-2">counter pump cp3-2</option>
   </select></label>
   <span id="dbg-canvas-size" style="font-size: 12px; color: var(--text-dim);"></span>
 </div>
@@ -1523,10 +1526,13 @@ document.getElementById('solve-btn').addEventListener('click', () => {
 /* ---- Preset dropdown (file-backed mazes under ./maze/) ---- */
 const PRESETS = {
   clear: null,
-  cp6:  'maze/counter-pump/cp6.txt',
-  md3:  'maze/minsky-doubling/md3.txt',
-  md4:  'maze/minsky-doubling/md4.txt',
-  md5:  'maze/minsky-doubling/md5.txt',
+  'cp2-4': 'maze/counter-pump/cp2-4.maze',
+  'cp2-5': 'maze/counter-pump/cp2-5.maze',
+  'cp2-6': 'maze/counter-pump/cp2-6.maze',
+  md3:     'maze/minsky-doubling/md3.maze',
+  md4:     'maze/minsky-doubling/md4.maze',
+  md5:     'maze/minsky-doubling/md5.maze',
+  'cp3-2': 'maze/counter-pump-3/cp3-2.maze',
 };
 async function loadPreset(key) {
   const mazeEl = document.getElementById('maze-input');
