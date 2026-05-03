@@ -27,7 +27,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.37</span><!-- hs2maze: prune one-port wall stubs after daisy chain --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.39</span><!-- nx/ny/zero answer path + arrows orthogonal --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -533,26 +533,28 @@ function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
   }
   const DIR_ANG = { E: 0, W: Math.PI, N: -Math.PI / 2, S: Math.PI / 2 };
 
-  /* Compute grid-aligned terminal positions and routes for this maze */
+  /* Compute grid-aligned terminal positions and routes for this maze.
+   * Sequential per-block routing (normal -> nx -> ny -> zero) produces
+   * one subgrid per block-type, all sharing the same dimensions and
+   * subterminal coords.  Each block's subgrid carries only its own
+   * port lines, so drawing each block-type uses its own subgrid. */
   let gridTermPos = null;
   let gridResult = null;
+  let gridResultsByBt = null;
   if (!diagonal) {
-    const deduped0 = [];
-    const seen0 = new Set();
-    for (const port of maze.normal) {
-      /* Lee subgrid only handles wall subterminals (W/E/N/S).
-       * 'C' (centre) subterms are drawn separately as diagonal lines. */
-      if (port.src.dir === 'C' || port.dst.dir === 'C') continue;
-      const k1 = port.src.dir + port.src.idx + ',' + port.dst.dir + port.dst.idx;
-      const k2 = port.dst.dir + port.dst.idx + ',' + port.src.dir + port.src.idx;
-      if (seen0.has(k2)) continue;
-      seen0.add(k1);
-      deduped0.push(port);
-    }
-    gridResult = routeBlockPorts(deduped0, nterm, CELL);
+    gridResultsByBt = buildSequentialBlockSubgrids(maze, nterm, CELL);
+    gridResult = gridResultsByBt.normal;
     gridTermPos = gridResult.termPos;
   }
   const portInfo = gridResult ? gridResult.portInfo || [] : [];
+  /* Map (bx, by) -> block-type. (0,0)=zero, (0,y>0)=nx, (x>0,0)=ny,
+   * (x>0,y>0)=normal. */
+  function blockTypeOf(bx, by) {
+    if (bx <= 0 && by <= 0) return 'zero';
+    if (bx <= 0) return 'nx';
+    if (by <= 0) return 'ny';
+    return 'normal';
+  }
 
   /* Per-path-segment endpoint resolver: picks the subterminal position
    * the specific port actually uses, so the answer path visually lands
@@ -560,7 +562,7 @@ function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
   const OPP = { E: 'W', W: 'E', N: 'S', S: 'N' };
   const DELTA = { E: [1, 0], W: [-1, 0], N: [0, 1], S: [0, -1] };
   function segmentPortEnds(sA, sB) {
-    if (!portInfo.length || !maze.normal) return null;
+    if (!gridResultsByBt) return null;
     const aOwn = { x: sA.x, y: sA.y };
     const aOther = { x: sA.x + DELTA[sA.dir][0], y: sA.y + DELTA[sA.dir][1] };
     const bOwn = { x: sB.x, y: sB.y };
@@ -572,9 +574,15 @@ function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
     else if (eq(aOther, bOther))  { B = aOther; aTerm = { dir: OPP[sA.dir], idx: sA.idx }; bTerm = { dir: OPP[sB.dir],   idx: sB.idx }; }
     else if (eq(aOwn, bOwn))      { B = aOwn;   aTerm = { dir: sA.dir,      idx: sA.idx }; bTerm = { dir: sB.dir,        idx: sB.idx }; }
     else return null;
-    if (B.x < 1 || B.y < 1) return null;
-    for (let pi = 0; pi < portInfo.length; pi++) {
-      const pp = portInfo[pi];
+    if (B.x < 0 || B.y < 0) return null;
+    /* Pick the block-type that B sits in so the answer-path lookup
+     * uses that block's per-port portInfo (sequential routing). */
+    const bt = blockTypeOf(B.x, B.y);
+    const gr = gridResultsByBt[bt];
+    if (!gr || !gr.portInfo) return null;
+    const piList = gr.portInfo;
+    for (let pi = 0; pi < piList.length; pi++) {
+      const pp = piList[pi];
       const srcMatchesA = pp.srcDir === aTerm.dir && pp.srcIdx === aTerm.idx;
       const dstMatchesB = pp.dstDir === bTerm.dir && pp.dstIdx === bTerm.idx;
       const srcMatchesB = pp.srcDir === bTerm.dir && pp.srcIdx === bTerm.idx;
@@ -587,17 +595,26 @@ function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
 
   function statePos(s) {
     const bp = bpos(s.x, s.y);
-    if (gridTermPos) {
-      /* E[i]@(x,y) = W[i]@(x+1,y): use W[i]'s y at the right edge of block (x,y) */
-      /* N[i]@(x,y) = S[i]@(x,y+1): use N[i]'s x at the bottom edge of block (x,y) ... wait, N is top */
-      if (s.dir === 'E') {
-        const wk = 'W' + s.idx;
-        if (gridTermPos[wk])
-          return { x: bp.x + CELL, y: bp.y + gridTermPos[wk].y };
-      } else if (s.dir === 'N') {
-        const sk = 'S' + s.idx;
-        if (gridTermPos[sk])
-          return { x: bp.x + gridTermPos[sk].x, y: bp.y };
+    /* When the block (s.x, s.y) sits in a sequential-routed block,
+     * use that block-type's termPos so the answer-path endpoint
+     * lands on the same y/x the Lee subgrid actually uses. */
+    if (gridResultsByBt) {
+      const bt = blockTypeOf(s.x, s.y);
+      const tp = gridResultsByBt[bt] && gridResultsByBt[bt].termPos;
+      if (tp) {
+        if (s.dir === 'E') {
+          const wk = 'W' + s.idx;
+          if (tp[wk]) return { x: bp.x + CELL, y: bp.y + tp[wk].y };
+        } else if (s.dir === 'N') {
+          const sk = 'S' + s.idx;
+          if (tp[sk]) return { x: bp.x + tp[sk].x, y: bp.y };
+        } else if (s.dir === 'W') {
+          const k = 'W' + s.idx;
+          if (tp[k]) return { x: bp.x + tp[k].x, y: bp.y + tp[k].y };
+        } else if (s.dir === 'S') {
+          const k = 'S' + s.idx;
+          if (tp[k]) return { x: bp.x + tp[k].x, y: bp.y + tp[k].y };
+        }
       }
     }
     const tp = termLocalPos(s.dir, s.idx, nterm, CELL, nCterm);
@@ -662,14 +679,18 @@ function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
 
   /* Normal port edges inside each block */
   if (!diagonal) {
-    /* Undirected: orthogonal routing with sub-block grid */
-    const { subgrid, nR: sgR, nC: sgC, junctions } = gridResult;
+    /* Undirected: orthogonal routing with sub-block grid.
+     * Sequential routing produced one subgrid per block-type; each
+     * block (normal/nx/ny/zero) is drawn from its own subgrid so each
+     * block shows only its own ports, but all subgrids share the same
+     * dimensions and subterminal cell coords. */
+    const sgR = gridResult.nR, sgC = gridResult.nC;
     const sgCW = CELL / sgC, sgRH = CELL / sgR;
     /* Subblock boundaries — dotted interior lines (debug only). */
     if (DEBUG_SHOW_SUBBLOCK_GRID) {
       for (let bx = minX; bx <= maxX; bx++) {
         for (let by = minY; by <= maxY; by++) {
-          if (bx < 1 || by < 1) continue;
+          if (bx < 0 || by < 0) continue;
           const bp = bpos(bx, by);
           ctx.save();
           ctx.strokeStyle = color('block-grid-light');
@@ -691,7 +712,12 @@ function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
     }
     for (let bx = minX; bx <= maxX; bx++) {
       for (let by = minY; by <= maxY; by++) {
-        if (bx < 1 || by < 1) continue;
+        if (bx < 0 || by < 0) continue;
+        const bt = blockTypeOf(bx, by);
+        const gr = gridResultsByBt[bt];
+        if (!gr) continue;
+        const subgrid = gr.subgrid;
+        const junctions = gr.junctions || [];
         const bp = bpos(bx, by);
         ctx.fillStyle = color('stroke');
         if (!crisp) {
@@ -750,16 +776,20 @@ function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
     }
   }
 
-  /* Orthogonal-mode arrowhead overlay on normal-port terminals (when the
-   * maze declares any directed port). Places a "V" at each block edge
-   * subterminal position, pointing outward. */
-  if (!diagonal && hasDirected && gridResult && gridResult.portInfo) {
+  /* Orthogonal-mode arrowhead overlay on every block-type's port
+   * terminals (when the maze declares any directed port). Places a
+   * "V" at each block edge subterminal position, pointing outward. */
+  if (!diagonal && hasDirected && gridResultsByBt) {
     for (let bx = minX; bx <= maxX; bx++) {
       for (let by = minY; by <= maxY; by++) {
-        if (bx < 1 || by < 1) continue;
+        if (bx < 0 || by < 0) continue;
+        const bt = blockTypeOf(bx, by);
+        const gr = gridResultsByBt[bt];
+        if (!gr || !gr.portInfo) continue;
+        const portList = maze[bt] || [];
         const bp = bpos(bx, by);
-        gridResult.portInfo.forEach((pp) => {
-          const port = maze.normal.find(q =>
+        gr.portInfo.forEach((pp) => {
+          const port = portList.find(q =>
             (q.src.dir === pp.srcDir && q.src.idx === pp.srcIdx &&
              q.dst.dir === pp.dstDir && q.dst.idx === pp.dstIdx) ||
             (q.src.dir === pp.dstDir && q.src.idx === pp.dstIdx &&
@@ -773,20 +803,17 @@ function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
     }
   }
 
-  /* nx / ny / zero ports are drawn together with normal ports above
-   * (per block, picked by portsAtBlock).  In orthogonal mode the Lee
-   * subgrid only routes the normal port set, so nx / ny / zero blocks
-   * fall back to diagonal-style lines here. C-involved ports in normal
-   * blocks are also drawn as diagonal lines (Lee can't route to/from
-   * cell-centre subterminals). */
+  /* C-involved ports (cell-centre subterminals) fall back to diagonal
+   * lines in every block-type — Lee's subgrid only handles wall
+   * (W/E/N/S) subterminals.  Wall-only ports in normal/nx/ny/zero
+   * blocks are drawn from their respective subgrids in the loop above. */
   if (!diagonal) {
     for (let bx = minX; bx <= maxX; bx++) {
       for (let by = minY; by <= maxY; by++) {
         if (bx < 0 || by < 0) continue;
-        const isNormal = bx >= 1 && by >= 1;
         const bp = bpos(bx, by);
         for (const port of portsAtBlock(maze, bx, by)) {
-          if (isNormal && port.src.dir !== 'C' && port.dst.dir !== 'C') continue;
+          if (port.src.dir !== 'C' && port.dst.dir !== 'C') continue;
           const from = termLocalPos(port.src.dir, port.src.idx, nterm, CELL, nCterm);
           const to = termLocalPos(port.dst.dir, port.dst.idx, nterm, CELL, nCterm);
           const a = arrowCfg(port);

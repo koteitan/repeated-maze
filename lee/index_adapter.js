@@ -38,16 +38,27 @@
     return SHAPE_BY_BITS[bits] || '?';
   }
 
-  function buildBlockSubgrid(ports, nterm, cellSize) {
-    /* ---- 1. Count subterminals per (dir, terminal-idx) ---- */
-    const nsub = { W: [], E: [], N: [], S: [] };
+  function buildBlockSubgrid(ports, nterm, cellSize, opts) {
+    opts = opts || {};
+    /* ---- 1. Count subterminals per (dir, terminal-idx) ----
+     * `ownNsub` is THIS block's actual counts (used for connectToChar
+     * painting in step 8 — only the slots this block uses get
+     * subport bits and subterm-edge fill).
+     * `nsub` drives the layout (cell row/col placement of subterm
+     * cells).  When the caller passes `nsubOverride` (sequential
+     * multi-block routing), every sibling shares one layout — the
+     * max counts across all four block-types — so subterm cells line
+     * up at the same (col, row) in every block.  Otherwise nsub
+     * defaults to ownNsub for the legacy single-block path. */
+    const ownNsub = { W: [], E: [], N: [], S: [] };
     for (let i = 0; i < nterm; i++) {
-      nsub.W.push(0); nsub.E.push(0); nsub.N.push(0); nsub.S.push(0);
+      ownNsub.W.push(0); ownNsub.E.push(0); ownNsub.N.push(0); ownNsub.S.push(0);
     }
     for (const p of ports) {
-      nsub[p.src.dir][p.src.idx]++;
-      nsub[p.dst.dir][p.dst.idx]++;
+      ownNsub[p.src.dir][p.src.idx]++;
+      ownNsub[p.dst.dir][p.dst.idx]++;
     }
+    const nsub = opts.nsubOverride || ownNsub;
 
     /* ---- 2. Grid size (diagonal.md §39-40) ---- */
     let Hcore = 0, Wcore = 0;
@@ -132,36 +143,74 @@
 
     if (Tin.length === 0) return emptyResult(nterm, cellSize);
 
-    /* ---- 6. Run Lee ----
-     * Pre-build the initial W×H grid (with 'T' at each subterminal) and
-     * hand it to lee_algorithm via opts so that Lee's init_map does not
-     * discard our margin rows/columns by recomputing the grid tight to
-     * Tin coordinates. */
-    const TinCopy = Tin.map(t => ({ x: t.x, y: t.y, dx: t.dx, dy: t.dy }));
-    const m0 = new Array(W);
-    for (let x = 0; x < W; x++) m0[x] = new Array(H).fill(' ');
-    for (let i = 0; i < Tin.length; i++) m0[Tin[i].x][Tin[i].y] = 'T';
-    const leeRes = LEE.lee_algorithm(TinCopy, P, { W, H, m: m0 });
-    if (leeRes.error) {
-      console.warn('lee_algorithm error:', leeRes.error, 'failedPort:', leeRes.failedPort);
+    /* `ownedKey` flags each Tin slot as actually used by THIS block's
+     * own ports.  In sequential multi-block routing the layout slot
+     * may exist (so sibling blocks share coords) but only owned slots
+     * become 'T' in m and only owned slots get connectToChar painting
+     * in step 8 — unused slots stay blank so unrelated lines do not
+     * leak across blocks. */
+    const owned = new Array(Tin.length).fill(false);
+    for (let t = 0; t < nterm; t++) {
+      for (let s = 0; s < ownNsub.W[t]; s++) { const k = 'W' + t + '-' + s; if (tinIdxByKey[k] != null) owned[tinIdxByKey[k]] = true; }
+      for (let s = 0; s < ownNsub.E[t]; s++) { const k = 'E' + t + '-' + s; if (tinIdxByKey[k] != null) owned[tinIdxByKey[k]] = true; }
+      for (let s = 0; s < ownNsub.N[t]; s++) { const k = 'N' + t + '-' + s; if (tinIdxByKey[k] != null) owned[tinIdxByKey[k]] = true; }
+      for (let s = 0; s < ownNsub.S[t]; s++) { const k = 'S' + t + '-' + s; if (tinIdxByKey[k] != null) owned[tinIdxByKey[k]] = true; }
     }
-    let m = leeRes.m;
-    let curW = leeRes.W;
-    let curH = leeRes.H;
-    const T = leeRes.T;
 
-    /* ---- 7. Square the grid (diagonal.md §53-57) ----
-     * Insert row at canvas y=1 (just below top-row N terminals); this
-     * corresponds to spec's "H'-2" position after shift. Insert col at
-     * x=W-1 (just inside the right-edge E terminals).
-     */
-    while (curW < curH) {
-      m = LEE.insert_map(m, curW - 1, 0, 'col', T);
-      curW++;
-    }
-    while (curH < curW) {
-      m = LEE.insert_map(m, 0, 1, 'row', T);
-      curH++;
+    /* ---- 6. Run Lee ----
+     * Pre-build the initial W×H grid (with 'T' only at OWNED subterm
+     * slots) and hand it to lee_algorithm via opts.  In sequential
+     * multi-block mode the caller may supply `externalLeeResult` —
+     * already-finalised m and T from an outer driver that ran Lee on
+     * this block while mirroring inserts to siblings.  In that case
+     * skip Lee entirely and reuse the supplied state. */
+    let m, curW, curH, T;
+    if (opts.externalLeeResult) {
+      m = opts.externalLeeResult.m;
+      T = opts.externalLeeResult.T;
+      curW = m.length;
+      curH = m[0] ? m[0].length : 0;
+      /* Tin entries reflect the layout but may have been shifted by
+       * inserts in the external driver.  Sync Tin coords to T. */
+      for (let i = 0; i < Tin.length; i++) {
+        if (T[i]) { Tin[i].x = T[i].x; Tin[i].y = T[i].y; }
+      }
+      W = curW; H = curH;
+    } else {
+      const TinCopy = Tin.map(t => ({ x: t.x, y: t.y, dx: t.dx, dy: t.dy }));
+      const m0 = new Array(W);
+      for (let x = 0; x < W; x++) m0[x] = new Array(H).fill(' ');
+      for (let i = 0; i < Tin.length; i++) {
+        if (owned[i]) m0[Tin[i].x][Tin[i].y] = 'T';
+      }
+      const leeRes = LEE.lee_algorithm(TinCopy, P, { W, H, m: m0 });
+      if (leeRes.error) {
+        console.warn('lee_algorithm error:', leeRes.error, 'failedPort:', leeRes.failedPort);
+      }
+      m = leeRes.m;
+      curW = leeRes.W;
+      curH = leeRes.H;
+      T = leeRes.T;
+      for (let i = 0; i < Tin.length; i++) {
+        Tin[i].x = T[i].x;
+        Tin[i].y = T[i].y;
+      }
+
+      /* ---- 7. Square the grid (diagonal.md §53-57) ----
+       * Insert row at canvas y=1 (just below top-row N terminals); this
+       * corresponds to spec's "H'-2" position after shift. Insert col at
+       * x=W-1 (just inside the right-edge E terminals).
+       *
+       * Skipped when externalLeeResult is supplied — the sequential
+       * driver has already squared the shared grid for every block. */
+      while (curW < curH) {
+        m = LEE.insert_map(m, curW - 1, 0, 'col', T);
+        curW++;
+      }
+      while (curH < curW) {
+        m = LEE.insert_map(m, 0, 1, 'row', T);
+        curH++;
+      }
     }
 
     /* Normalize Lee's ASCII '-' / '|' to Unicode box-drawing chars. */
@@ -173,9 +222,12 @@
       }
     }
 
-    /* ---- 8. Compute connect[] for each subterminal & overwrite 'T' ---- */
+    /* ---- 8. Compute connect[] for each subterminal & overwrite 'T'
+     * Only owned subterm slots get conns / connectToChar painting.
+     * Unused (sibling-only) slots in the shared layout stay blank. */
     const entriesByKey = {};
     for (let i = 0; i < Tin.length; i++) {
+      if (!owned[i]) continue;
       const key = tinKeyByIdx[i];
       const m_ = /^([WENS])(\d+)-(\d+)$/.exec(key);
       if (!m_) continue;
@@ -520,8 +572,218 @@
     };
   }
 
+  /* Sequential multi-block routing: route normal -> nx -> ny -> zero
+   * one block at a time, mirroring every Lee insert_map back onto
+   * already-routed blocks' m and T arrays so all four blocks finish
+   * with identical grid dimensions and identical subterminal coords.
+   * Each block's own m carries only its own port lines, so per-block
+   * BFS reachability stays clean.
+   *
+   * Per-block init: when a later block (nx) starts, it COPIES the
+   * already-routed normal block's T (terminal coords) and stamps 'T'
+   * only at the slots THIS block uses, on a freshly blank m of the
+   * current shared (W, H).  Lee then routes nx's ports inside that m.
+   * Inserts that Lee triggers fire onInsert, which insert_maps the
+   * same (x, y, dir) into every older block's m and T.
+   */
+  function buildSequentialBlockSubgrids(blockPortsByType, nterm, cellSize) {
+    /* ---- A. Dedupe ports per block, accumulate nsubAll ---- */
+    const blockDeduped = { normal: [], nx: [], ny: [], zero: [] };
+    const nsubAll = { W: [], E: [], N: [], S: [] };
+    for (let i = 0; i < nterm; i++) {
+      nsubAll.W.push(0); nsubAll.E.push(0); nsubAll.N.push(0); nsubAll.S.push(0);
+    }
+    for (const bt of ['normal', 'nx', 'ny', 'zero']) {
+      const seen = new Set();
+      const blockNsub = { W: [], E: [], N: [], S: [] };
+      for (let i = 0; i < nterm; i++) {
+        blockNsub.W.push(0); blockNsub.E.push(0); blockNsub.N.push(0); blockNsub.S.push(0);
+      }
+      for (const port of (blockPortsByType[bt] || [])) {
+        if (port.src.dir === 'C' || port.dst.dir === 'C') continue;
+        const k1 = port.src.dir + port.src.idx + ',' + port.dst.dir + port.dst.idx;
+        const k2 = port.dst.dir + port.dst.idx + ',' + port.src.dir + port.src.idx;
+        if (seen.has(k2)) continue;
+        seen.add(k1);
+        blockDeduped[bt].push(port);
+        blockNsub[port.src.dir][port.src.idx]++;
+        blockNsub[port.dst.dir][port.dst.idx]++;
+      }
+      for (let i = 0; i < nterm; i++) {
+        for (const d of ['W', 'E', 'N', 'S']) {
+          if (blockNsub[d][i] > nsubAll[d][i]) nsubAll[d][i] = blockNsub[d][i];
+        }
+      }
+    }
+
+    /* ---- B. Compute initial shared layout (Tin, W, H, ownedByBt) ---- */
+    let Hcore = 0, Wcore = 0;
+    for (let t = 0; t < nterm; t++) {
+      Hcore += Math.max(nsubAll.W[t], nsubAll.E[t]);
+      Wcore += Math.max(nsubAll.N[t], nsubAll.S[t]);
+    }
+    let H = Math.max(Hcore + 2, 3);
+    let W = Math.max(Wcore + 2, 3);
+
+    const wY = [], eY = [], nX = [], sX = [];
+    for (let t = 0; t < nterm; t++) { wY.push([]); eY.push([]); nX.push([]); sX.push([]); }
+    {
+      let y = 1;
+      for (let t = 0; t < nterm; t++) {
+        const maxWE = Math.max(nsubAll.W[t], nsubAll.E[t]);
+        for (let s = 0; s < maxWE; s++) {
+          if (s < nsubAll.W[t]) wY[t].push(y);
+          if (s < nsubAll.E[t]) eY[t].push(y);
+          y++;
+        }
+      }
+    }
+    {
+      let x = 1;
+      for (let t = 0; t < nterm; t++) {
+        const maxSN = Math.max(nsubAll.N[t], nsubAll.S[t]);
+        for (let s = 0; s < maxSN; s++) {
+          if (s < nsubAll.S[t]) sX[t].push(x);
+          if (s < nsubAll.N[t]) nX[t].push(x);
+          x++;
+        }
+      }
+    }
+
+    const Tin = [];
+    const tinKeyByIdx = [];
+    const tinIdxByKey = {};
+    function addTerm(dir, t, s, x, y, dx, dy) {
+      const key = dir + t + '-' + s;
+      tinIdxByKey[key] = Tin.length;
+      tinKeyByIdx.push(key);
+      Tin.push({ x, y, dx, dy });
+    }
+    for (let t = 0; t < nterm; t++) {
+      for (let s = 0; s < wY[t].length; s++) addTerm('W', t, s, 0, wY[t][s], +1, 0);
+      for (let s = 0; s < eY[t].length; s++) addTerm('E', t, s, W - 1, eY[t][s], -1, 0);
+      for (let s = 0; s < nX[t].length; s++) addTerm('N', t, s, nX[t][s], 0, 0, +1);
+      for (let s = 0; s < sX[t].length; s++) addTerm('S', t, s, sX[t][s], H - 1, 0, -1);
+    }
+
+    /* ownedByBt[bt][i] = true if block bt actually uses Tin slot i */
+    const ownedByBt = { normal: [], nx: [], ny: [], zero: [] };
+    for (const bt of ['normal', 'nx', 'ny', 'zero']) {
+      const own = new Array(Tin.length).fill(false);
+      const blockNsub = { W: [], E: [], N: [], S: [] };
+      for (let i = 0; i < nterm; i++) {
+        blockNsub.W.push(0); blockNsub.E.push(0); blockNsub.N.push(0); blockNsub.S.push(0);
+      }
+      for (const port of blockDeduped[bt]) {
+        blockNsub[port.src.dir][port.src.idx]++;
+        blockNsub[port.dst.dir][port.dst.idx]++;
+      }
+      for (let t = 0; t < nterm; t++) {
+        for (let s = 0; s < blockNsub.W[t]; s++) { const k = 'W' + t + '-' + s; if (tinIdxByKey[k] != null) own[tinIdxByKey[k]] = true; }
+        for (let s = 0; s < blockNsub.E[t]; s++) { const k = 'E' + t + '-' + s; if (tinIdxByKey[k] != null) own[tinIdxByKey[k]] = true; }
+        for (let s = 0; s < blockNsub.N[t]; s++) { const k = 'N' + t + '-' + s; if (tinIdxByKey[k] != null) own[tinIdxByKey[k]] = true; }
+        for (let s = 0; s < blockNsub.S[t]; s++) { const k = 'S' + t + '-' + s; if (tinIdxByKey[k] != null) own[tinIdxByKey[k]] = true; }
+      }
+      ownedByBt[bt] = own;
+    }
+
+    /* ---- C. Sequential Lee, mirroring inserts back to older blocks ---- */
+    const orderBt = ['normal', 'nx', 'ny', 'zero'];
+    const mByBt = { normal: null, nx: null, ny: null, zero: null };
+    const TByBt = { normal: null, nx: null, ny: null, zero: null };
+    /* `routedSoFar` tracks which blocks have been processed (mirror
+     * targets when the next block triggers an insert).  We mirror to
+     * EVERY already-routed block plus the active block itself; Lee
+     * handles the active block's m/T directly via its own state, so
+     * onInsert only needs to update the OTHER routed blocks. */
+    const routedSoFar = [];
+    for (const bt of orderBt) {
+      const ports = blockDeduped[bt];
+      /* Build P (port indices into Tin) using shared layout */
+      const used = { W: [], E: [], N: [], S: [] };
+      for (let i = 0; i < nterm; i++) { used.W.push(0); used.E.push(0); used.N.push(0); used.S.push(0); }
+      const P = [];
+      for (const p of ports) {
+        const sKey = p.src.dir + p.src.idx + '-' + (used[p.src.dir][p.src.idx]++);
+        const eKey = p.dst.dir + p.dst.idx + '-' + (used[p.dst.dir][p.dst.idx]++);
+        const sIdx = tinIdxByKey[sKey], eIdx = tinIdxByKey[eKey];
+        if (sIdx != null && eIdx != null) P.push({ s: sIdx, e: eIdx });
+      }
+
+      /* Init this block's m/T from the current shared (W, H).  When
+       * routedSoFar is non-empty, copy T from the last routed block —
+       * those have shared coords by construction (every prior insert
+       * fired onInsert into all routed blocks). */
+      let m_bt = new Array(W);
+      for (let x = 0; x < W; x++) m_bt[x] = new Array(H).fill(' ');
+      let T_bt;
+      if (routedSoFar.length > 0) {
+        const ref = TByBt[routedSoFar[routedSoFar.length - 1]];
+        T_bt = ref.map(t => ({ x: t.x, y: t.y, dx: t.dx, dy: t.dy }));
+      } else {
+        T_bt = Tin.map(t => ({ x: t.x, y: t.y, dx: t.dx, dy: t.dy }));
+      }
+      const own = ownedByBt[bt];
+      for (let i = 0; i < T_bt.length; i++) {
+        if (own[i]) {
+          const t = T_bt[i];
+          if (t.x >= 0 && t.x < W && t.y >= 0 && t.y < H) m_bt[t.x][t.y] = 'T';
+        }
+      }
+
+      /* onInsert: when Lee inserts into m_bt at (x, y, dir), apply the
+       * SAME insert into every already-routed sibling's m and T so
+       * grid sizes and subterm coords stay locked. */
+      const onInsert = (x, y, dir) => {
+        for (const sibBt of routedSoFar) {
+          mByBt[sibBt] = LEE.insert_map(mByBt[sibBt], x, y, dir, TByBt[sibBt]);
+        }
+        if (dir === 'col') W += 1; else H += 1;
+      };
+
+      if (P.length > 0) {
+        const leeRes = LEE.lee_algorithm(T_bt, P, { W, H, m: m_bt, onInsert });
+        if (leeRes.error) {
+          console.warn(`buildSequentialBlockSubgrids: ${bt} ${leeRes.error} failedPort=${leeRes.failedPort}`);
+        }
+        m_bt = leeRes.m;
+        T_bt = leeRes.T;
+      }
+      mByBt[bt] = m_bt;
+      TByBt[bt] = T_bt;
+      routedSoFar.push(bt);
+    }
+
+    /* ---- D. Square the shared grid (post all blocks) ---- */
+    let curW = mByBt.normal ? mByBt.normal.length : W;
+    let curH = mByBt.normal && mByBt.normal[0] ? mByBt.normal[0].length : H;
+    while (curW < curH) {
+      for (const bt of orderBt) {
+        mByBt[bt] = LEE.insert_map(mByBt[bt], curW - 1, 0, 'col', TByBt[bt]);
+      }
+      curW++;
+    }
+    while (curH < curW) {
+      for (const bt of orderBt) {
+        mByBt[bt] = LEE.insert_map(mByBt[bt], 0, 1, 'row', TByBt[bt]);
+      }
+      curH++;
+    }
+
+    /* ---- E. Per-block post-processing via buildBlockSubgrid ---- */
+    const out = {};
+    for (const bt of orderBt) {
+      out[bt] = buildBlockSubgrid(blockDeduped[bt], nterm, cellSize, {
+        nsubOverride: nsubAll,
+        externalLeeResult: { m: mByBt[bt], T: TByBt[bt] },
+      });
+    }
+    return out;
+  }
+
   global.buildBlockSubgrid = buildBlockSubgrid;
+  global.buildSequentialBlockSubgrids = buildSequentialBlockSubgrids;
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { buildBlockSubgrid };
+    module.exports = { buildBlockSubgrid, buildSequentialBlockSubgrids };
   }
 })(typeof window !== 'undefined' ? window : globalThis);

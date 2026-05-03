@@ -307,9 +307,20 @@
     let state = derive_initial_state(Tin, opts);
     let m = state.m;
 
-    const insert_map = global.insert_map;
-    if (typeof insert_map !== 'function') {
+    const real_insert_map = global.insert_map;
+    if (typeof real_insert_map !== 'function') {
       throw new Error('lee_algorithm: insert_map is not available; load lee/insert_map.js first');
+    }
+    /* Wrap insert_map so callers can mirror every grid expansion onto
+     * sibling-block grids in lock-step (sequential multi-block routing
+     * in lee/index_adapter.js).  When supplied, `onInsert(x, y, dir)`
+     * fires AFTER the wrap completes its own state update; callers are
+     * expected to apply the same insert_map to their own m/T pairs. */
+    const onInsert = (opts && typeof opts.onInsert === 'function') ? opts.onInsert : null;
+    function insert_map(mArg, x, y, dir, Targ) {
+      const newM = real_insert_map(mArg, x, y, dir, Targ);
+      if (onInsert) onInsert(x, y, dir);
+      return newM;
     }
 
     // Per-port routing: preemptive clear of blocked departure cells, then BFS
