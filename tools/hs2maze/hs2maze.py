@@ -49,41 +49,46 @@ import re
 import sys
 
 
-VERSION = "2.1"
+VERSION = "2.2"
 
 HELP_TEXT = """hs2maze v{version} -- Haskell state machine -> repeated-maze.
 
 Usage:
-  python3 hs2maze.py [FILE]                  default: directed `->`, C terminals kept
+  python3 hs2maze.py [FILE]                  default: undirected `-`, daisy-chain
+                                             pass drops C terminals
   python3 hs2maze.py [FILE] --undirected     undirected `-`, C terminals kept
-  python3 hs2maze.py [FILE] --daisy          undirected `-`, C terminals dropped
-                                             via the daisy-chain pass
-  python3 hs2maze.py [FILE] --no-simplify    keep all C terminals (skip the
-                                             low-degree C simplifier)
+                                             (no daisy chain)
+  python3 hs2maze.py [FILE] --daisy          alias for the default
+  python3 hs2maze.py [FILE] --no-simplify    raw (*1) decomposition: directed
+                                             `->`, C terminals kept, no daisy
+                                             chain, no low-degree simplifier
   python3 hs2maze.py [FILE] -v               pretty-print rules to stderr
   python3 hs2maze.py --help | -h             show this help
   python3 hs2maze.py --version | -V          show version and exit
 
-Output (stdout): a single maze line `normal: <ports>; nx: <ports>; ny: <ports>`.
+Output (stdout): a single maze line `normal: <ports>; nx: <ports>; ny: <ports>; zero: <ports>`.
 
-Default mode emits directed `->` ports keeping C terminals — each
-Haskell rule becomes a (*1)-decomposed C->edge / edge->C / cross
-chain.  Solvers must follow the Haskell flow direction, so path length
-matches the Haskell step count up to a constant factor (O(k^2) for
-cp2-k, O(2^k) for md-k).  The two bridges `W0->C0` (entry) and
+Default mode applies the daisy-chain pass after (*1) decomposition:
+drops C terminals (idx >= 2 — bridge endpoints C0 / C1 still appear
+through the W0-C0 / C1-W1 entries), chains W/E/N/S terms in CCW order,
+and emits undirected `-` ports.  BFS path length flattens to O(k) since
+direction is dropped, but the maze becomes parsable by tools that
+cannot handle C subterminals.
+
+--undirected keeps C terminals but drops direction (no daisy chain).
+Useful when you want a visualizer to show C subterminals while still
+allowing reversed traversal in BFS.
+
+--no-simplify outputs the raw (*1) decomposition: directed `->`, C
+terminals kept, no daisy chain, no low-degree C simplifier.  Path
+length matches the Haskell step count up to a constant factor (O(k^2)
+for cp2-k, O(2^k) for md-k).  The two bridges `W0->C0` (entry) and
 `C1->W1` (exit) anchor the maze start (0,0,W0) / goal (0,0,W1) to the
 Haskell-level (0,0,C0) / (0,0,C1).
 
---undirected drops the direction but keeps C terminals.  BFS short-
-circuits via reversed ports, so path length flattens to O(k).
-
---daisy applies the daisy-chain pass after (*1) decomposition: drops C
-terminals, chains W/E/N/S terms in CCW order, also flattens to O(k).
-Useful when downstream tooling can't parse C terminals.
-
-After (*1) decomposition, redundant C terminals (idx >= 2; C0 / C1
-are protected as bridge endpoints) are simplified by default per
-block-type independently (pass --no-simplify to skip):
+Without --no-simplify, redundant C terminals (idx >= 2; C0 / C1 are
+protected as bridge endpoints) are reduced per block-type independently
+before the daisy chain (when applicable):
   in=1, out=1  bridge X->C->Y into X->Y
   in=1, out=0  drop the lone in port
   in=0, out=1  drop the lone out port
@@ -363,7 +368,8 @@ def render_directed(ports):
 
 def main():
     args = sys.argv[1:]
-    daisy = False
+    # Default: daisy chain on (drops C terminals, undirected output).
+    daisy = True
     undirected = False
     no_simplify = False
     verbose = False
@@ -379,8 +385,10 @@ def main():
             daisy = True
         elif a == '--undirected':
             undirected = True
+            daisy = False
         elif a == '--no-simplify':
             no_simplify = True
+            daisy = False
         elif a in ('-v', '--verbose'):
             verbose = True
         else:
@@ -421,19 +429,19 @@ def main():
         sets = {bt: simplify_c_terminals(ports) for bt, ports in sets.items()}
 
     if daisy:
-        # Daisy-chain pass drops C terminals AND collapses multi-rule
-        # chains into one short CCW chain, so the feature/atomic-style
-        # O(k^2) path-length growth flattens to O(k).  Default off.
+        # Default: daisy-chain pass drops C terminals AND collapses
+        # multi-rule chains into one short CCW chain, so path-length
+        # growth flattens to O(k).  Output is undirected (`-`).
         sets = {bt: daisy_chain(ports) for bt, ports in sets.items()}
         renderer = render_undirected
     elif undirected:
-        # Keep C terminals but render `-` (both directions usable).
+        # --undirected: keep C terminals but render `-` (no daisy chain).
         # BFS finds shortest path regardless of Haskell flow, so path
         # length is also linear in k — useful for visual debugging.
         renderer = render_undirected
     else:
-        # Default: directed `->` so each (*1) edge is one-way and the
-        # walker has to follow the Haskell rule chain.  Path length
+        # --no-simplify: directed `->` so each (*1) edge is one-way and
+        # the walker has to follow the Haskell rule chain.  Path length
         # matches the Haskell step count up to a constant factor and
         # preserves O(k^2) for cp2-k / O(2^k) for md-k.
         renderer = render_directed

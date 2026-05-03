@@ -3,7 +3,7 @@ HS = $(KS:%=md%.hs)
 MAZES = $(KS:%=md%.maze)
 
 HS2MAZE = ../../tools/hs2maze/hs2maze.py
-HS2MAZE_FLAGS = --undirected
+HS2MAZE_FLAGS =
 MAKE_MD = ./make-minsky-doubling.py
 
 all: $(HS) $(MAZES)
