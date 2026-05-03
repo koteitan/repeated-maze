@@ -27,7 +27,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.34</span><!-- hs2maze: daisy-chain pass on by default --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.35</span><!-- diagonal answer path mirrors same-side port curve --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -904,10 +904,52 @@ function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
          * subgrid actually owns. */
         prev = statePos(path[i - 1]);
         p    = statePos(path[i]);
-        polylines = [[prev, p]];
-        polylinesGrid = [[null, null]];
-        polylinesLabels = [['polyline']];
-        polylinesKind = ['main'];
+        const sa = path[i - 1], sb = path[i];
+        const sameSideCurve =
+          diagonal &&
+          sa.x === sb.x && sa.y === sb.y &&
+          sa.dir === sb.dir && sa.dir !== 'C';
+        if (sameSideCurve) {
+          /* Same-side port (E0-E1 etc.): mirror drawPortDiag's curve
+           * so the answer path overlays the curved port instead of
+           * cutting straight across the cell. */
+          const mx = (prev.x + p.x) / 2, my = (prev.y + p.y) / 2;
+          const off = 30 * S;
+          let cpx = mx, cpy = my;
+          switch (sa.dir) {
+            case 'E': cpx = mx - off; break;
+            case 'W': cpx = mx + off; break;
+            case 'N': cpy = my + off; break;
+            case 'S': cpy = my - off; break;
+          }
+          drawCurvedLine(ctx, prev.x, prev.y, p.x, p.y, cpx, cpy, color('path'), 1);
+          dbgLines.push('curve' + fmtPt(prev) + '->' + fmtPt(p) + ' // polyline');
+          if (hasDirected) {
+            const ang = Math.atan2(p.y - cpy, p.x - cpx);
+            const spread = Math.PI / 6;
+            const hl = Math.max(6, 10 * S);
+            ctx.save();
+            ctx.strokeStyle = color('path');
+            ctx.lineWidth = 1;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(p.x - hl * Math.cos(ang - spread), p.y - hl * Math.sin(ang - spread));
+            ctx.lineTo(p.x, p.y);
+            ctx.lineTo(p.x - hl * Math.cos(ang + spread), p.y - hl * Math.sin(ang + spread));
+            ctx.stroke();
+            ctx.restore();
+          }
+          polylines = [];
+          polylinesGrid = [];
+          polylinesLabels = [];
+          polylinesKind = [];
+        } else {
+          polylines = [[prev, p]];
+          polylinesGrid = [[null, null]];
+          polylinesLabels = [['polyline']];
+          polylinesKind = ['main'];
+        }
       }
       const fmtSb = sb => sb ? ' for sb(' + sb.c + ',' + sb.r + ')' : '';
       const fmtBk = bk => bk ? ' in b(' + bk.x + ',' + bk.y + ')' : '';
