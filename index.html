@@ -27,7 +27,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.39</span><!-- nx/ny/zero answer path + arrows orthogonal --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.40</span><!-- segmentPortEnds same-block priority over same-neighbor --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -568,27 +568,43 @@ function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
     const bOwn = { x: sB.x, y: sB.y };
     const bOther = { x: sB.x + DELTA[sB.dir][0], y: sB.y + DELTA[sB.dir][1] };
     const eq = (p, q) => p.x === q.x && p.y === q.y;
-    let B = null, aTerm, bTerm;
-    if (eq(aOther, bOwn))         { B = aOther; aTerm = { dir: OPP[sA.dir], idx: sA.idx }; bTerm = { dir: sB.dir,        idx: sB.idx }; }
-    else if (eq(aOwn, bOther))    { B = aOwn;   aTerm = { dir: sA.dir,      idx: sA.idx }; bTerm = { dir: OPP[sB.dir],   idx: sB.idx }; }
-    else if (eq(aOther, bOther))  { B = aOther; aTerm = { dir: OPP[sA.dir], idx: sA.idx }; bTerm = { dir: OPP[sB.dir],   idx: sB.idx }; }
-    else if (eq(aOwn, bOwn))      { B = aOwn;   aTerm = { dir: sA.dir,      idx: sA.idx }; bTerm = { dir: sB.dir,        idx: sB.idx }; }
-    else return null;
-    if (B.x < 0 || B.y < 0) return null;
-    /* Pick the block-type that B sits in so the answer-path lookup
-     * uses that block's per-port portInfo (sequential routing). */
-    const bt = blockTypeOf(B.x, B.y);
-    const gr = gridResultsByBt[bt];
-    if (!gr || !gr.portInfo) return null;
-    const piList = gr.portInfo;
-    for (let pi = 0; pi < piList.length; pi++) {
-      const pp = piList[pi];
-      const srcMatchesA = pp.srcDir === aTerm.dir && pp.srcIdx === aTerm.idx;
-      const dstMatchesB = pp.dstDir === bTerm.dir && pp.dstIdx === bTerm.idx;
-      const srcMatchesB = pp.srcDir === bTerm.dir && pp.srcIdx === bTerm.idx;
-      const dstMatchesA = pp.dstDir === aTerm.dir && pp.dstIdx === aTerm.idx;
-      if (srcMatchesA && dstMatchesB) return { B, aPos: pp.src, bPos: pp.dst, answerSegments: pp.answerSegments, answerSegmentsGrid: pp.answerSegmentsGrid, answerSegmentsLabels: pp.answerSegmentsLabels, answerSegmentsKind: pp.answerSegmentsKind, branchStubs: pp.branchStubs, branchStubsGrid: pp.branchStubsGrid, branchStubsKind: pp.branchStubsKind, reversed: false };
-      if (srcMatchesB && dstMatchesA) return { B, aPos: pp.dst, bPos: pp.src, answerSegments: pp.answerSegments, answerSegmentsGrid: pp.answerSegmentsGrid, answerSegmentsLabels: pp.answerSegmentsLabels, answerSegmentsKind: pp.answerSegmentsKind, branchStubs: pp.branchStubs, branchStubsGrid: pp.branchStubsGrid, branchStubsKind: pp.branchStubsKind, reversed: true };
+
+    /* Build candidate (B, aDir, bDir) tuples in priority order. The
+     * first candidate whose block-type's portInfo contains a matching
+     * port wins. Case 4 (both states in same block) is tried first so
+     * a same-direction port like Nx-Ny in zero is preferred over a
+     * spurious "both cross to same neighbor" interpretation. */
+    const candidates = [];
+    /* Case 4: both states in the same block (port lives in B = aOwn). */
+    if (eq(aOwn, bOwn)) candidates.push({ B: aOwn,   aDir: sA.dir,      bDir: sB.dir       });
+    /* Case 1: sA crosses to sB's block via wall (port lives in B = aOther = bOwn). */
+    if (eq(aOther, bOwn)) candidates.push({ B: aOther, aDir: OPP[sA.dir], bDir: sB.dir       });
+    /* Case 2: sB crosses to sA's block. */
+    if (eq(aOwn, bOther)) candidates.push({ B: aOwn,   aDir: sA.dir,      bDir: OPP[sB.dir]  });
+    /* Case 3: both cross into the SAME neighbor block (excluding the
+     * same-block degenerate which is already covered by case 4). */
+    if (eq(aOther, bOther) && !eq(aOwn, bOwn))
+      candidates.push({ B: aOther, aDir: OPP[sA.dir], bDir: OPP[sB.dir] });
+    if (candidates.length === 0) return null;
+
+    for (const cand of candidates) {
+      const B = cand.B;
+      if (B.x < 0 || B.y < 0) continue;
+      const bt = blockTypeOf(B.x, B.y);
+      const gr = gridResultsByBt[bt];
+      if (!gr || !gr.portInfo) continue;
+      const piList = gr.portInfo;
+      const aTerm = { dir: cand.aDir, idx: sA.idx };
+      const bTerm = { dir: cand.bDir, idx: sB.idx };
+      for (let pi = 0; pi < piList.length; pi++) {
+        const pp = piList[pi];
+        const srcMatchesA = pp.srcDir === aTerm.dir && pp.srcIdx === aTerm.idx;
+        const dstMatchesB = pp.dstDir === bTerm.dir && pp.dstIdx === bTerm.idx;
+        const srcMatchesB = pp.srcDir === bTerm.dir && pp.srcIdx === bTerm.idx;
+        const dstMatchesA = pp.dstDir === aTerm.dir && pp.dstIdx === aTerm.idx;
+        if (srcMatchesA && dstMatchesB) return { B, aPos: pp.src, bPos: pp.dst, answerSegments: pp.answerSegments, answerSegmentsGrid: pp.answerSegmentsGrid, answerSegmentsLabels: pp.answerSegmentsLabels, answerSegmentsKind: pp.answerSegmentsKind, branchStubs: pp.branchStubs, branchStubsGrid: pp.branchStubsGrid, branchStubsKind: pp.branchStubsKind, reversed: false };
+        if (srcMatchesB && dstMatchesA) return { B, aPos: pp.dst, bPos: pp.src, answerSegments: pp.answerSegments, answerSegmentsGrid: pp.answerSegmentsGrid, answerSegmentsLabels: pp.answerSegmentsLabels, answerSegmentsKind: pp.answerSegmentsKind, branchStubs: pp.branchStubs, branchStubsGrid: pp.branchStubsGrid, branchStubsKind: pp.branchStubsKind, reversed: true };
+      }
     }
     return null;
   }
@@ -619,6 +635,38 @@ function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
     }
     const tp = termLocalPos(s.dir, s.idx, nterm, CELL, nCterm);
     return { x: bp.x + tp.x, y: bp.y + tp.y };
+  }
+
+  /* Inner cell-centre position for a state's subterm cell.  Used to
+   * extend wall-traversal answer-path segments from one block's
+   * subterm cell centre across the boundary to the sibling block's
+   * subterm cell centre — otherwise statePos returns identical
+   * boundary pixels for both sides and the segment is invisible. */
+  function statePosInner(s) {
+    const bp = bpos(s.x, s.y);
+    if (gridResultsByBt) {
+      const bt = blockTypeOf(s.x, s.y);
+      const gr = gridResultsByBt[bt];
+      const tp = gr && gr.termPos;
+      if (tp && gr.nC && gr.nR) {
+        const cellW = CELL / gr.nC;
+        const cellH = CELL / gr.nR;
+        if (s.dir === 'N') {
+          const sk = 'S' + s.idx;
+          if (tp[sk]) return { x: bp.x + tp[sk].x, y: bp.y + cellH / 2 };
+        } else if (s.dir === 'S') {
+          const sk = 'S' + s.idx;
+          if (tp[sk]) return { x: bp.x + tp[sk].x, y: bp.y + CELL - cellH / 2 };
+        } else if (s.dir === 'W') {
+          const k = 'W' + s.idx;
+          if (tp[k]) return { x: bp.x + cellW / 2, y: bp.y + tp[k].y };
+        } else if (s.dir === 'E') {
+          const wk = 'W' + s.idx;
+          if (tp[wk]) return { x: bp.x + CELL - cellW / 2, y: bp.y + tp[wk].y };
+        }
+      }
+    }
+    return statePos(s);
   }
 
   /* Draw a single port edge (diagonal: line or arrow) */
