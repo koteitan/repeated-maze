@@ -33,7 +33,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.41</span><!-- versioned localStorage + cp2-4 initial state + (-0.5,-0.5) default pan --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.42</span><!-- strip reset query param after reset --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -1917,6 +1917,14 @@ async function applyInitialState() {
 const _resetRequested = /(^|[?&])reset(=|&|$)/.test(window.location.search);
 if (_resetRequested) {
   try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+  /* Strip the `reset` param from the URL so reloading or sharing the
+   * page doesn't keep wiping localStorage on every revisit.  All
+   * other query params are preserved. */
+  try {
+    const _u = new URL(window.location.href);
+    _u.searchParams.delete('reset');
+    history.replaceState(null, '', _u.pathname + (_u.searchParams.toString() ? '?' + _u.searchParams.toString() : '') + _u.hash);
+  } catch (e) {}
 }
 const initialPromise = (_resetRequested || !loadState())
   ? applyInitialState()
