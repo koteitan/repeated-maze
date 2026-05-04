@@ -33,7 +33,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.42</span><!-- strip reset query param after reset --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.43</span><!-- per-polyline non-crisp answer-path stroke + #FF0000 path --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -936,11 +936,15 @@ function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
     if (crisp) {
       ctx.fillStyle = color('path');
     } else {
+      /* Set the strokeStyle once; each polyline below begins/strokes
+       * its own sub-path so a curve or arrowhead beginPath in any
+       * iteration cannot clobber accumulated geometry — that bug
+       * caused the answer path to disappear in cp3-2 when low zoom
+       * forced non-crisp mode. */
       ctx.save();
       ctx.strokeStyle = color('path');
       ctx.lineWidth = 1;
       ctx.lineCap = 'butt';
-      ctx.beginPath();
     }
     const fmtState = s => '(' + s.x + ',' + s.y + ',' + s.dir + s.idx + ')';
     const fmtPt = pt => '( ' + Math.round(pt.x) + ',' + Math.round(pt.y) + ' )';
@@ -1068,8 +1072,12 @@ function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
       } else {
         for (let pi = 0; pi < polylines.length; pi++) {
           const wp = polylines[pi], wg = polylinesGrid[pi], wl = polylinesLabels[pi];
-          ctx.moveTo(wp[0].x, wp[0].y);
-          for (let w = 1; w < wp.length; w++) ctx.lineTo(wp[w].x, wp[w].y);
+          if (wp.length >= 2) {
+            ctx.beginPath();
+            ctx.moveTo(wp[0].x, wp[0].y);
+            for (let w = 1; w < wp.length; w++) ctx.lineTo(wp[w].x, wp[w].y);
+            ctx.stroke();
+          }
           for (let w = 1; w < wp.length; w++) logLine(wp[w - 1], wp[w], tagOf(wl[w - 1]), wg[w - 1], ends && ends.B);
         }
       }
@@ -1111,7 +1119,7 @@ function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
         for (const line of dbgLines) console.log('  ' + line);
       }
     }
-    if (!crisp) { ctx.stroke(); ctx.restore(); }
+    if (!crisp) { ctx.restore(); }
 
     /* Step number circles (disable via [ ] step).
      * Anchor each circle at the terminal representative position

@@ -27,7 +27,7 @@
   --junction: #000000;
 
   /* Path / markers */
-  --path: #e63946;
+  --path: #FF0000;
   --start: #27ae60;
   --goal: #c0392b;
   --marker-current: #2980b9;
@@ -60,7 +60,7 @@ body.darkmode {
   --stroke: #ffffff;
   --junction: #ffffff;
 
-  --path: #e9525d;
+  --path: #FF0000;
   --start: #5ed892;
   --goal: #d8857c;
   --marker-current: #3194d6;
