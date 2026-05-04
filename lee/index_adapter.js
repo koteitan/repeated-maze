@@ -376,7 +376,8 @@
       const cells = [{ x: src.x, y: src.y }];
       let prevDir = srcDir;                /* direction we came FROM (outward) */
       let cx = src.x, cy = src.y;
-      for (let step = 0; step < 200; step++) {
+      const maxSteps = (m.length + (m[0] ? m[0].length : 0)) * 4;
+      for (let step = 0; step < maxSteps; step++) {
         if (cx === dst.x && cy === dst.y && step > 0) return cells;
         const inSide = SIDE_OF_DIR[prevDir];
         const shape = m[cx] && m[cx][cy];
