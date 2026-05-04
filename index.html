@@ -9,15 +9,21 @@
  * saved-off darkmode users never see a white flash on page load. URL
  * query param (?darkmode=0|1) overrides the persisted state. */
 try {
-  let _dark = false;
+  let _dark = true;  /* initial default: dark mode ON */
   const _params = new URLSearchParams(window.location.search);
   if (_params.has('darkmode')) {
     _dark = _params.get('darkmode') === '1';
-  } else {
+  } else if (!/(^|[?&])reset(=|&|$)/.test(window.location.search)) {
     const _saved = localStorage.getItem('repeated-maze-state');
     if (_saved) {
-      const _st = JSON.parse(_saved);
-      if (_st && _st.checkboxes && _st.checkboxes['chk-darkmode']) _dark = true;
+      try {
+        const _st = JSON.parse(_saved);
+        /* Only honour darkmode from a versioned-1 state.  Versionless
+         * (older format) falls through to the initial default below. */
+        if (_st && _st.version === 1 && _st.checkboxes) {
+          _dark = !!_st.checkboxes['chk-darkmode'];
+        }
+      } catch (e) {}
     }
   }
   if (_dark) document.documentElement.classList.add('darkmode');
@@ -27,7 +33,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.40</span><!-- segmentPortEnds same-block priority over same-neighbor --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.41</span><!-- versioned localStorage + cp2-4 initial state + (-0.5,-0.5) default pan --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -372,12 +378,16 @@ function setupCanvas(canvasId, wrapId, bounds) {
       const seedZoom = cssW / (sCols * BASE_CELL);
       const seedCell = BASE_CELL * seedZoom;
       viewState = {
-        cx: (bounds.minX + bounds.maxX + 1) / 2,
+        /* Default pan: shift the bottom-left corner from block (0,0)
+         * to block (-0.5, -0.5) so Start/Goal subterminals at the
+         * outer edge of (0,0) are not clipped against the canvas
+         * border. */
+        cx: (bounds.minX + bounds.maxX + 1) / 2 - 0.5,
         /* cy pinned so bpos(_, bounds.minY).y + CELL === cssH:
          *   cssH/2 + (cy - bounds.minY) * CELL === cssH - CELL
          *   cy = bounds.minY + cssH/(2*CELL) - 1
-         */
-        cy: bounds.minY + cssH / (2 * seedCell) - 1,
+         * then shift by -0.5 for the same Start/Goal-visible reason. */
+        cy: bounds.minY + cssH / (2 * seedCell) - 1.5,
         zoom: seedZoom,
         userControlled: false,
       };
@@ -1812,6 +1822,7 @@ document.getElementById('chk-answer-path').addEventListener('change', draw);
 
 /* ---- localStorage persistence ---- */
 const STORAGE_KEY = 'repeated-maze-state';
+const STORAGE_VERSION = 1;
 const TEXTAREA_IDS = ['maze-input', 'answer-input'];
 const CHECKBOX_IDS = ['chk-normal', 'chk-simple', 'chk-diagonal', 'chk-step', 'chk-answer-path', 'chk-darkmode'];
 const CHECKBOX_DEFAULTS = {
@@ -1820,8 +1831,15 @@ const CHECKBOX_DEFAULTS = {
   'chk-diagonal': false,
   'chk-step': false,
   'chk-answer-path': true,
-  'chk-darkmode': false,
+  'chk-darkmode': true,
 };
+/* Initial state applied when localStorage is missing/versionless or
+ * the page is loaded with ?reset.  cp2-4 maze + a sample answer path
+ * + the default checkbox layout (normal+answer+darkmode on,
+ * simple+diagonal+step off). */
+const INITIAL_PRESET = 'cp2-4';
+const INITIAL_CHECKBOX_VALUES = CHECKBOX_DEFAULTS;
+const INITIAL_ANSWER = '(0,0,W0) -> (0,0,N2) -> (0,0,E3) -> (1,0,W3) -> (1,0,E4) -> (2,0,W4) -> (2,0,E5) -> (3,0,W5) -> (3,0,E6) -> (4,0,W6) -> (4,0,N9) -> (4,1,S9) -> (4,1,N10) -> (4,2,S10) -> (4,2,N11) -> (4,3,S11) -> (4,3,N12) -> (4,4,S12) -> (4,4,W13) -> (3,4,E13) -> (3,4,N9) -> (3,5,S9) -> (3,5,N10) -> (3,6,S10) -> (3,6,N11) -> (3,7,S11) -> (3,7,N12) -> (3,8,S12) -> (3,8,W13) -> (2,8,E13) -> (2,8,N9) -> (2,9,S9) -> (2,9,N10) -> (2,10,S10) -> (2,10,N11) -> (2,11,S11) -> (2,11,N12) -> (2,12,S12) -> (2,12,W13) -> (1,12,E13) -> (1,12,N9) -> (1,13,S9) -> (1,13,N10) -> (1,14,S10) -> (1,14,N11) -> (1,15,S11) -> (1,15,N12) -> (1,16,S12) -> (1,16,W13) -> (0,16,E13) -> (0,16,S14) -> (0,15,N14) -> (0,15,E13) -> (0,15,S14) -> (0,14,N14) -> (0,14,E13) -> (0,14,S14) -> (0,13,N14) -> (0,13,E13) -> (0,13,S14) -> (0,12,N14) -> (0,12,E13) -> (0,12,S14) -> (0,11,N14) -> (0,11,E13) -> (0,11,S14) -> (0,10,N14) -> (0,10,E13) -> (0,10,S14) -> (0,9,N14) -> (0,9,E13) -> (0,9,S14) -> (0,8,N14) -> (0,8,E13) -> (0,8,S14) -> (0,7,N14) -> (0,7,E13) -> (0,7,S14) -> (0,6,N14) -> (0,6,E13) -> (0,6,S14) -> (0,5,N14) -> (0,5,E13) -> (0,5,S14) -> (0,4,N14) -> (0,4,E13) -> (0,4,S14) -> (0,3,N14) -> (0,3,E13) -> (0,3,S14) -> (0,2,N14) -> (0,2,E13) -> (0,2,S14) -> (0,1,N14) -> (0,1,E13) -> (0,1,S14) -> (0,0,N14) -> (0,0,N9) -> (0,0,W1)';
 
 function applyDarkmode() {
   /* Toggle on <html> so the inline head script and this runtime toggle
@@ -1832,12 +1850,16 @@ function applyDarkmode() {
   );
 }
 
+/* Try to restore a versioned state.  Returns true on success.  A
+ * versionless or wrong-version blob is ignored — the caller should
+ * fall back to applyInitialState() to seed defaults. */
 function loadState() {
   let raw;
-  try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) { return; }
-  if (!raw) return;
+  try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) { return false; }
+  if (!raw) return false;
   let state;
-  try { state = JSON.parse(raw); } catch (e) { return; }
+  try { state = JSON.parse(raw); } catch (e) { return false; }
+  if (!state || state.version !== STORAGE_VERSION) return false;
   if (state.textareas) {
     for (const id of TEXTAREA_IDS) {
       if (typeof state.textareas[id] === 'string') {
@@ -1860,10 +1882,11 @@ function loadState() {
       userControlled: true,
     };
   }
+  return true;
 }
 
 function saveState() {
-  const state = { textareas: {}, checkboxes: {} };
+  const state = { version: STORAGE_VERSION, textareas: {}, checkboxes: {} };
   for (const id of TEXTAREA_IDS) state.textareas[id] = document.getElementById(id).value;
   for (const id of CHECKBOX_IDS) state.checkboxes[id] = document.getElementById(id).checked;
   if (viewState && viewState.userControlled) {
@@ -1872,12 +1895,32 @@ function saveState() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
 }
 
-/* Clear storage when the page is loaded with ?reset. */
-if (/(^|[?&])reset(=|&|$)/.test(window.location.search)) {
-  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
-} else {
-  loadState();
+/* Seed the page with the initial preset + checkbox defaults.  Used
+ * when localStorage is missing/versionless or ?reset is present. */
+async function applyInitialState() {
+  await loadPreset(INITIAL_PRESET);
+  /* loadPreset clears the answer textarea; populate it with the
+   * sample path provided as the initial default. */
+  const ansEl = document.getElementById('answer-input');
+  if (ansEl) ansEl.value = INITIAL_ANSWER;
+  /* loadPreset forces chk-answer-path / chk-step off and saves;
+   * override here so the initial defaults win. */
+  for (const id of CHECKBOX_IDS) {
+    if (id in INITIAL_CHECKBOX_VALUES) {
+      document.getElementById(id).checked = INITIAL_CHECKBOX_VALUES[id];
+    }
+  }
+  saveState();
 }
+
+/* Decide whether to restore from storage or seed initial state. */
+const _resetRequested = /(^|[?&])reset(=|&|$)/.test(window.location.search);
+if (_resetRequested) {
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+}
+const initialPromise = (_resetRequested || !loadState())
+  ? applyInitialState()
+  : Promise.resolve();
 
 /* Apply URL query params over any restored/default state. Supported keys:
  *   maze=<text|empty>, answer=<text|empty>,
@@ -1919,13 +1962,20 @@ async function applyQueryParams() {
     viewState = { cx, cy, zoom, userControlled: true };
   }
 }
-const queryParamsReady = applyQueryParams();
+/* Run query-param overrides AFTER initialPromise so a fresh load (no
+ * localStorage / ?reset) settles on the initial preset before any
+ * URL params layer on top.  When loadState() succeeds, initialPromise
+ * is already resolved so this collapses to the legacy behaviour. */
+const queryParamsReady = initialPromise.then(applyQueryParams);
 
-/* Apply restored state to the UI. Dark mode / visibility are set now;
- * textareas that depend on async decompression redraw after the
- * queryParamsReady promise resolves. */
-applyDarkmode();
-toggleVisibility();
+/* Apply restored state to the UI. Dark mode / visibility are set
+ * after the initial state lands so darkmode reflects the initial
+ * defaults; textareas that depend on async decompression redraw
+ * after the queryParamsReady promise resolves. */
+initialPromise.then(() => {
+  applyDarkmode();
+  toggleVisibility();
+});
 queryParamsReady.then(() => draw());
 
 /* Save on blur for textareas, on change for checkboxes. */
