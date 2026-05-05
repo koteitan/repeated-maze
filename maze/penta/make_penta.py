@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""make_penta.py — Generate penta.hs for hs2maze.
+"""make_penta.py — Generate penta.hs for hs2maze (current convention).
 
 Implements penta.md's 2-register Gödel-encoded pentation Minsky machine:
   x = 2^a * 3^b * 5^c * 7^d * 11^e * f  (f in {1, 13, 17, 19})
@@ -9,14 +9,22 @@ Implements penta.md's 2-register Gödel-encoded pentation Minsky machine:
   - Divides by denominator, multiplies by numerator
   - Loops back to main dispatcher
 
+Maze convention (matches current hs2maze.py / solver.py):
+  - start  = (0, 0, W, 0)  bridge W0 -> C0 (Haskell pc = 0)
+  - goal   = (0, 0, W, 1)  bridge C1 -> W1 (Haskell pc = 1, HALT)
+  - registers start at (x = 0, y = 0)
+  - block (0, 0) is the `zero` block
+
+Zero-branch handling is emitted as zb='x' and zb='y' Haskell rules
+(`penta (0, y, pc) = ...` / `penta (x, 0, pc) = ...`).  hs2maze.py
+auto-distributes them: zb='x' -> nx + zero, zb='y' -> ny + zero,
+catch-all -> all four sets.  No manual port editing required.
+
 Usage: python3 make_penta.py [initial_a] > penta.hs
   initial_a: exponent of 2 in input Gödel number.
              penta(2^initial_a) = 3^(2↑↑↑initial_a).
-             Default 1. For 0, result=1 (immediate HALT).
+             Default 1.  For 0, result = 1 (immediate HALT).
              For 2, result = 3^(2^16) (huge).
-
-Output: Haskell state machine consumable by hs2maze.py, plus
-        stderr comment block listing required nx/ny/bridge ports.
 """
 
 import sys
@@ -50,12 +58,13 @@ RULES = [
 # ---------------------------------------------------------------------------
 
 class Gen:
+    """Emit Haskell rules.  `emitted` is a list of (pc, kind, line) tuples
+    where kind is 'a' (catch-all), 'x' (zb='x'), or 'y' (zb='y').
+    Multiple rules per pc are allowed (catch-all + zb='x' or zb='y')."""
+
     def __init__(self):
-        self.pc_next = 2  # pc 0 reserved for start, pc 1 for HALT (hs2maze convention)
-        self.lines = []   # Haskell body lines (sorted later by pc)
-        self.emitted = {} # pc -> line, for sorted output
-        self.nx_ports = []  # list of (src_pc, dst_pc)
-        self.ny_ports = []  # list of (src_pc, dst_pc)
+        self.pc_next = 2  # pc 0 = start, pc 1 = HALT (hs2maze convention)
+        self.emitted = []
 
     def new_pc(self):
         p = self.pc_next
@@ -63,22 +72,35 @@ class Gen:
         return p
 
     def emit(self, pc, dx, dy, dst):
+        """Catch-all: penta (x, y, pc) = penta (x±dx, y±dy, dst)."""
         def fmt(v, var):
             if v > 0:
                 return f"{var}+{v}"
             if v < 0:
                 return f"{var}{v}"
             return var
-        dxs = fmt(dx, 'x')
-        dys = fmt(dy, 'y')
-        self.emitted[pc] = f"penta (x, y, {pc:5d}) = penta ({dxs:>4s}, {dys:>4s}, {dst:5d})"
+        line = (f"penta (x, y, {pc:5d}) = penta "
+                f"({fmt(dx, 'x'):>4s}, {fmt(dy, 'y'):>4s}, {dst:5d})")
+        self.emitted.append((pc, 'a', line))
 
     def emit_noop(self, pc, dst):
         self.emit(pc, 0, 0, dst)
 
+    def emit_zb_x(self, pc, dst):
+        """zb='x': penta (0, y, pc) = penta (0, y, dst)."""
+        line = (f"penta (0, y, {pc:5d}) = penta "
+                f"(   0,    y, {dst:5d})")
+        self.emitted.append((pc, 'x', line))
+
+    def emit_zb_y(self, pc, dst):
+        """zb='y': penta (x, 0, pc) = penta (x, 0, dst)."""
+        line = (f"penta (x, 0, {pc:5d}) = penta "
+                f"(   x,    0, {dst:5d})")
+        self.emitted.append((pc, 'y', line))
+
     # ------------------------------------------------------------------
-    # mul_p: x := p * x using y as temp. Assumes y = 0. Exits to exit_pc.
-    # PCs used: entry + p (incy chain) + stage2_decy + stage2_incx = p + 3
+    # mul_p: x := p * x using y as temp.  Assumes y = 0.  Exits to exit_pc.
+    # PCs used: entry + p (incy chain) + 2 (stage 2) = p + 3
     # ------------------------------------------------------------------
     def mul_p(self, p, exit_pc):
         entry = self.new_pc()
@@ -88,23 +110,21 @@ class Gen:
 
         # Stage 1: DEC x; if x=0 go to stage 2; else INC y p times and loop.
         self.emit(entry, -1, 0, incy[0])
-        self.nx_ports.append((entry, s2_decy))
-
+        self.emit_zb_x(entry, s2_decy)
         for i in range(p):
             nxt = incy[i + 1] if i + 1 < p else entry
             self.emit(incy[i], 0, 1, nxt)
 
-        # Stage 2: DEC y, INC x, loop; exit via ny.
+        # Stage 2: DEC y, INC x, loop; exit via zb='y'.
         self.emit(s2_decy, 0, -1, s2_incx)
-        self.ny_ports.append((s2_decy, exit_pc))
+        self.emit_zb_y(s2_decy, exit_pc)
         self.emit(s2_incx, 1, 0, s2_decy)
-
         return entry
 
     # ------------------------------------------------------------------
-    # div_p: x := x / p (assumes p | x). Assumes y = 0. Exits to exit_pc.
+    # div_p: x := x / p (assumes p | x).  Assumes y = 0.  Exits to exit_pc.
     # On unexpected (p ∤ x) it traps to trap_pc (which self-loops).
-    # PCs used: p (dec chain) + 1 (incy) + 2 (stage2) = p + 3
+    # PCs used: p (dec chain) + 1 (incy) + 2 (stage 2) = p + 3
     # ------------------------------------------------------------------
     def div_p(self, p, exit_pc, trap_pc):
         entry = self.new_pc()
@@ -116,12 +136,12 @@ class Gen:
         for i in range(p):
             nxt = decs[i + 1] if i + 1 < p else incy
             self.emit(decs[i], -1, 0, nxt)
-            # nx: x=0 at first DEC means done; at mid-chain means unexpected.
-            self.nx_ports.append((decs[i], s2_decy if i == 0 else trap_pc))
+            # x=0 at first DEC means done; mid-chain means unexpected.
+            self.emit_zb_x(decs[i], s2_decy if i == 0 else trap_pc)
 
         self.emit(incy, 0, 1, decs[0])
         self.emit(s2_decy, 0, -1, s2_incx)
-        self.ny_ports.append((s2_decy, exit_pc))
+        self.emit_zb_y(s2_decy, exit_pc)
         self.emit(s2_incx, 1, 0, s2_decy)
         return entry
 
@@ -136,17 +156,17 @@ class Gen:
         decs = [entry] + [self.new_pc() for _ in range(p - 1)]
         incy = self.new_pc()
 
-        # Generate p restore subroutines. Each reconstructs x = y*p + k.
+        # Generate p restore subroutines.  Each reconstructs x = y*p + k.
         restores = []
         for k in range(p):
             exit_tgt = fail_pc if k == 0 else pass_pc
             decy = self.new_pc()
             incxs = [self.new_pc() for _ in range(p)]
-            extras = [self.new_pc() for _ in range(k)]  # INC x k more times after y=0
+            extras = [self.new_pc() for _ in range(k)]
 
             self.emit(decy, 0, -1, incxs[0])
             ny_dst = exit_tgt if k == 0 else extras[0]
-            self.ny_ports.append((decy, ny_dst))
+            self.emit_zb_y(decy, ny_dst)
 
             for i in range(p):
                 nxt = incxs[i + 1] if i + 1 < p else decy
@@ -158,11 +178,11 @@ class Gen:
 
             restores.append(decy)
 
-        # Main DEC chain
+        # Main DEC chain.
         for i in range(p):
             nxt = decs[i + 1] if i + 1 < p else incy
             self.emit(decs[i], -1, 0, nxt)
-            self.nx_ports.append((decs[i], restores[i]))
+            self.emit_zb_x(decs[i], restores[i])
 
         self.emit(incy, 0, 1, decs[0])
         return entry
@@ -173,27 +193,19 @@ class Gen:
     def drain_x(self, exit_pc):
         entry = self.new_pc()
         self.emit(entry, -1, 0, entry)
-        self.nx_ports.append((entry, exit_pc))
+        self.emit_zb_x(entry, exit_pc)
         return entry
 
     # ------------------------------------------------------------------
     # gen_action(ops, main_pc, trap_pc): emit a sequential chain of
-    # mul/div subroutines. Last op exits to main_pc.
+    # mul/div subroutines.  Last op exits to main_pc.
     # Returns entry pc of the first op (or main_pc if ops is empty).
     # ------------------------------------------------------------------
     def gen_action(self, ops, main_pc, trap_pc):
         if not ops:
             return main_pc
-        # Reserve an exit pc for each op (so we can thread forward refs).
+        exits = [self.new_pc() for _ in ops]
         op_entries = []
-        exits = []
-        for _ in ops:
-            exits.append(self.new_pc())
-        # Each op's "exit" pc is a noop that forwards to next op (or main).
-        for i in range(len(ops)):
-            nxt = exits[i + 1] if i + 1 < len(ops) else main_pc
-            self.emit_noop(exits[i], nxt)
-        # Now generate each op pointing to its exit.
         for i, (op, p) in enumerate(ops):
             exit_pc = exits[i]
             if op == 'mul':
@@ -201,11 +213,10 @@ class Gen:
             else:  # div
                 entry = self.div_p(p, exit_pc, trap_pc)
             op_entries.append(entry)
-        # Chain: first op's entry is the start. Intermediate ops chain via exits.
-        # But exits[i] forwards to next op's entry, not its exit. Fix:
-        for i in range(len(ops) - 1):
-            self.emit_noop(exits[i], op_entries[i + 1])
-        self.emit_noop(exits[-1], main_pc)
+        # Each exit pc forwards to the next op's entry (or main_pc).
+        for i in range(len(ops)):
+            target = op_entries[i + 1] if i + 1 < len(ops) else main_pc
+            self.emit_noop(exits[i], target)
         return op_entries[0]
 
 
@@ -216,29 +227,25 @@ class Gen:
 def build(initial_a):
     g = Gen()
 
-    # Allocate the anchor pcs first so later code can reference them.
-    # pc=0 (start) and pc=1 (HALT) are hardcoded.
+    # Reserve anchor pcs.  pc=0 (start) and pc=1 (HALT) are hardcoded.
     main_pc = g.new_pc()
     trap_pc = g.new_pc()
     g.emit_noop(trap_pc, trap_pc)  # infinite self-loop for unexpected cases
 
-    # Rule entry pcs (forward references).
     rule_entries = [g.new_pc() for _ in RULES]
 
-    # pc=0: DEC y (Minsky y=1 → 0), then goto setup.
-    setup_entry = g.new_pc()
-    g.emit(0, 0, -1, setup_entry)
-    g.ny_ports.append((0, trap_pc))  # y=0 at pc=0 shouldn't happen
-
-    # Setup: INC x initial_a times, then jump to main_pc.
-    if initial_a == 0:
-        g.emit_noop(setup_entry, main_pc)
-    else:
-        cur = setup_entry
-        for i in range(initial_a):
-            nxt = g.new_pc() if i + 1 < initial_a else main_pc
-            g.emit(cur, 1, 0, nxt)
-            cur = nxt
+    # Seed input x = 2^initial_a via 2^initial_a INC x rules at pc=0..
+    # (Initial registers are (0, 0) per current maze convention; no DEC y
+    # needed.)  Pentation needs Gödel x = 2^initial_a where the 5D-Minsky
+    # input register a has value initial_a; the bare INC chain is fine for
+    # small initial_a and avoids extra control overhead in the maze.
+    # n_inc >= 1 always (initial_a=0 -> 1 INC -> x=1 -> Rule 1 HALTs).
+    n_inc = 1 << initial_a  # 2^initial_a
+    cur = 0
+    for i in range(n_inc):
+        nxt = g.new_pc() if i + 1 < n_inc else main_pc
+        g.emit(cur, 1, 0, nxt)
+        cur = nxt
 
     # main_pc -> rule_entries[0]
     g.emit_noop(main_pc, rule_entries[0])
@@ -249,39 +256,46 @@ def build(initial_a):
         next_rule = rule_entries[idx + 1] if idx + 1 < len(RULES) else trap_pc
 
         if is_halt:
-            # HALT rule: test conditions; if all pass, drain x, INC y, goto pc=1.
+            # HALT: drain x to 0 (y is already 0), then goto pc=1.
             halt_drain_pc = g.new_pc()
-            halt_sety_pc = g.new_pc()
-
-            # Drain x: self-loop DEC x; when x=0, goto halt_sety_pc.
             g.emit(halt_drain_pc, -1, 0, halt_drain_pc)
-            g.nx_ports.append((halt_drain_pc, halt_sety_pc))
+            g.emit_zb_x(halt_drain_pc, 1)  # x=0 -> HALT at pc=1
 
-            # Set y := 1 (from 0) and goto pc=1.
-            g.emit(halt_sety_pc, 0, 1, 1)
+            # Indirection to break the "INC x → pc=halt_drain_pc + self-loop"
+            # shortcut.  Without it, test_ndiv's terminal `extras` catch-all
+            # `INC x to pass_pc` would emit the source port
+            # C(extras)→E(halt_drain_pc) and the self-loop's dst port
+            # E(halt_drain_pc)→C(halt_drain_pc) into the same block-type
+            # set (catch-all goes to all 4), letting BFS skip the drain
+            # loop entirely (C(extras) → E(halt_drain_pc) →
+            # C(halt_drain_pc) → C1).  Routing through halt_drain_entry
+            # (a noop, no edge port) keeps the entry edge-port-free so
+            # E(halt_drain_pc) is only reachable via the legitimate
+            # neighbour-block crossing.
+            halt_drain_entry = g.new_pc()
+            g.emit_noop(halt_drain_entry, halt_drain_pc)
 
-            # Chain of ndiv tests. Last test's pass goes to halt_drain_pc.
             if not ndiv_primes:
-                g.emit_noop(entry, halt_drain_pc)
+                g.emit_noop(entry, halt_drain_entry)
             else:
                 cur_entry = entry
                 for j, pstr in enumerate(ndiv_primes):
                     p_int = int(pstr)
                     if j + 1 < len(ndiv_primes):
                         nxt_entry = g.new_pc()
-                        test_entry = g.test_ndiv(p_int, pass_pc=nxt_entry,
-                                                 fail_pc=next_rule)
+                        test_entry = g.test_ndiv(
+                            p_int, pass_pc=nxt_entry, fail_pc=next_rule
+                        )
                         g.emit_noop(cur_entry, test_entry)
                         cur_entry = nxt_entry
                     else:
-                        test_entry = g.test_ndiv(p_int, pass_pc=halt_drain_pc,
-                                                 fail_pc=next_rule)
+                        test_entry = g.test_ndiv(
+                            p_int, pass_pc=halt_drain_entry, fail_pc=next_rule
+                        )
                         g.emit_noop(cur_entry, test_entry)
         else:
-            # Non-HALT rule: emit action first (it needs exit = main_pc).
             action_entry = g.gen_action(action, main_pc, trap_pc)
 
-            # Chain of ndiv tests. Last test's pass goes to action_entry.
             if not ndiv_primes:
                 g.emit_noop(entry, action_entry)
             else:
@@ -290,24 +304,41 @@ def build(initial_a):
                     p_int = int(pstr)
                     if j + 1 < len(ndiv_primes):
                         nxt_entry = g.new_pc()
-                        test_entry = g.test_ndiv(p_int, pass_pc=nxt_entry,
-                                                 fail_pc=next_rule)
+                        test_entry = g.test_ndiv(
+                            p_int, pass_pc=nxt_entry, fail_pc=next_rule
+                        )
                         g.emit_noop(cur_entry, test_entry)
                         cur_entry = nxt_entry
                     else:
-                        test_entry = g.test_ndiv(p_int, pass_pc=action_entry,
-                                                 fail_pc=next_rule)
+                        test_entry = g.test_ndiv(
+                            p_int, pass_pc=action_entry, fail_pc=next_rule
+                        )
                         g.emit_noop(cur_entry, test_entry)
 
     return g
 
 
+# ---------------------------------------------------------------------------
+# Output formatting
+# ---------------------------------------------------------------------------
+
 def format_output(g, initial_a):
+    n_zb_x = sum(1 for _, k, _ in g.emitted if k == 'x')
+    n_zb_y = sum(1 for _, k, _ in g.emitted if k == 'y')
+    n_catch = sum(1 for _, k, _ in g.emitted if k == 'a')
+
+    n_inc = 1 << initial_a
     header = [
         f"-- penta.hs: Gödel-encoded 2-register Minsky machine computing pentation.",
         f"-- Generated by make_penta.py (initial_a={initial_a}).",
-        f"-- Input: x = 2^{initial_a} at (0, 1, E, 0).",
-        f"-- Output: halts with x Gödel-encoding penta result, then drained to x=0.",
+        f"--",
+        f"-- Maze convention (current hs2maze.py / solver.py):",
+        f"--   start = (0, 0, W, 0)  via bridge W0 -> C0 (pc = 0)",
+        f"--   goal  = (0, 0, W, 1)  via bridge C1 -> W1 (pc = 1)",
+        f"--   initial registers (x = 0, y = 0); block (0, 0) is `zero`.",
+        f"--",
+        f"-- Input:  x = 2^{initial_a} = {n_inc} (set up by {n_inc} INC x rules at pc=0..).",
+        f"-- Output: drains x to 0 then HALTs at pc=1 with registers (0, 0).",
         f"--",
         f"-- 14 Fractran-style rules from penta.md:",
     ]
@@ -322,22 +353,35 @@ def format_output(g, initial_a):
         cond = " ∧ ".join(f"{p}∤x" for p in nd) if nd else "(default)"
         header.append(f"--   Rule {idx + 1:2d}: {cond:30s} → {desc}")
     header.append(f"--")
-    header.append(f"-- Total pc count: {g.pc_next - 2} (pc 0, 1 reserved; allocated 2..{g.pc_next - 1})")
+    header.append(
+        f"-- Total pc count: {g.pc_next - 2} "
+        f"(pc 0, 1 reserved; allocated 2..{g.pc_next - 1})"
+    )
+    header.append(
+        f"-- Rules: {n_catch} catch-all, "
+        f"{n_zb_x} zb='x', {n_zb_y} zb='y'."
+    )
+    header.append(
+        f"-- All zero-branch handling is encoded as zb='x' / zb='y' rules,"
+    )
+    header.append(
+        f"-- so hs2maze.py auto-generates the maze with no manual editing."
+    )
     header.append(f"--")
-    header.append(f"-- Required nx ports (manual, since hs2maze does not generate):")
-    for src, dst in g.nx_ports:
-        header.append(f"--   nx: E{src}-E{dst}")
-    header.append(f"--")
-    header.append(f"-- Required ny ports + bridges (manual):")
-    for src, dst in g.ny_ports:
-        header.append(f"--   ny: N_{{chain intermediate of pc={src}}}-N_{{fresh}}; bridge S_{{fresh}}-W{dst}")
-    header.append(f"--")
-    header.append(f"-- Usage: python3 hs2maze.py penta.hs  (then add nx/ny/bridge manually)")
+    header.append(
+        f"-- Usage: python3 ../../tools/hs2maze/hs2maze.py penta.hs > penta.maze"
+    )
     header.append("")
     header.append(f"penta :: (Int, Int, Int) -> (Int, Int, Int)")
     header.append("")
 
-    body = [g.emitted[pc] for pc in sorted(g.emitted)]
+    # Sort: zb='x' first, then zb='y', then catch-all, per pc.  Matches
+    # Haskell first-match semantics so the file is human-readable as a
+    # runnable Haskell module (hs2maze itself ignores order).
+    order = {'x': 0, 'y': 1, 'a': 2}
+    body_lines = sorted(g.emitted, key=lambda t: (t[0], order[t[1]]))
+    body = [line for _, _, line in body_lines]
+
     return "\n".join(header + body) + "\n"
 
 
@@ -348,9 +392,14 @@ def main():
         sys.exit(1)
     g = build(initial_a)
     print(format_output(g, initial_a), end='')
-    print(f"[make_penta] Generated {g.pc_next - 2} pc values, "
-          f"{len(g.nx_ports)} nx ports, {len(g.ny_ports)} ny ports.",
-          file=sys.stderr)
+    n_zb_x = sum(1 for _, k, _ in g.emitted if k == 'x')
+    n_zb_y = sum(1 for _, k, _ in g.emitted if k == 'y')
+    n_catch = sum(1 for _, k, _ in g.emitted if k == 'a')
+    print(
+        f"[make_penta] Generated {g.pc_next - 2} pc values: "
+        f"{n_catch} catch-all, {n_zb_x} zb='x', {n_zb_y} zb='y'.",
+        file=sys.stderr,
+    )
 
 
 if __name__ == '__main__':
