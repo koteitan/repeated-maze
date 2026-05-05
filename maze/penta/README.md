@@ -81,10 +81,3 @@ Each rule is lowered into:
 Initial_a=1 is solvable in BFS (path length ~390 in directed mode) since
 the Gödel result is only x=9.  initial_a >= 2 is computationally infeasible
 because the intermediate Gödel numbers blow up pentation-fast.
-
-## Note
-
-The point of this build is the **structural existence proof**: a uniform
-4-block-type 2D repeated maze that embeds a pentation-computing Minsky
-machine.  Generating the maze file is mechanical, but *solving* it via
-BFS is intractable for any non-trivial initial_a.
