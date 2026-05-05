@@ -9,6 +9,7 @@ Known construction methods for repeated mazes that produce long shortest paths.
 - [Counter Pump (cp2)](counter-pump/README.md) — 2-register Minsky machine that accumulates and drains the y coordinate up to n². O(n²) path length with fixed return width.
 - [Counter Pump 3-stage (cp3)](counter-pump-3/) — 3-register triple-nested loop. Generate the 3-register Haskell with `make-cp3.py`, then pipe through `nd-to-2d.py` → `hs2maze.py` for O(n³).
 - [Minsky Doubling Machine](minsky-doubling/README.md) — Repeats y ↦ 2y+1 for k cycles, implementing the doubling via x↔y transfer. O(2^k) path length.
+- [Pentation Maze (penta)](penta/README.md) — 2-register Gödel-encoded Minsky machine that computes pentation via 14 Fractran-style rules. Ω(2↑↑↑n) path length on uniform 4-block-types.
 
 ## Building blocks used by each construction
 
@@ -19,7 +20,8 @@ Each construction is a register machine; at the rule level all of them only need
 | counter-pump (cp2)         | ✓ | ✓ | 2-level     | –                | –                | accumulates y up to n²      | O(n²) |
 | counter-pump-3 (cp3)       | ✓ | ✓ | 3-level     | –                | –                | fires inner DEC z exactly n³ times | O(n³) |
 | minsky-doubling (md)       | ✓ | ✓ | k iterations | ✓                | –                | applies y ↦ 2y+1 k times (= 2^{k+1}−1) | O(2^k) |
-| nd-to-2d (output)          | ✓ | ✓ | (depends on input) | ✓ (internal scratch) | ✓ (via Gödel encoding) | re-encodes an n-register Minsky machine into a 2-register Gödel form | (depends on input) |
+| pentation (penta)          | ✓ | ✓ | (Fractran loop) | ✓ | ✓ (via Gödel encoding) | computes 2↑↑↑n via 14 Fractran-style rules on Gödel-encoded x | Ω(2↑↑↑n) |
+| nd-to-2d (output)          | ✓ | ✓ | (depends on input) | ✓ | ✓ (via Gödel encoding) | re-encodes an n-register Minsky machine into a 2-register Gödel form | (depends on input) |
 
 `nd-to-2d` itself is not a construction but a **compiler** that lowers an n-register Minsky Haskell source into a 2-register Gödel-encoded form (the input format hs2maze accepts). In the compiled output, every original `INC r_i` / `DEC r_i` / LHS-zero pattern `(... 0 ...)` macro-expands into x := x · p_i / x := x ÷ p_i / a divisibility test x mod p_i = 0 respectively, where p_i is the i-th prime (2, 3, 5, …). The "nd-to-2d (output)" row above describes that macro layer.
 

@@ -20,6 +20,7 @@ The **maze generator search** that maximizes shortest path length for a given nt
     - [nterm=6 Example](maze/counter-pump/6.md) — Counter pump with 6 terminals per side (path length 257)
   - [Minsky Doubling Machine](maze/minsky-doubling/README.md) — Exponential path length O(2^{nterm/12}) via register machine encoding
     - [k=5 Example](maze/minsky-doubling/5.md) — 5-iteration doubling machine (662 steps)
+  - [Pentation Maze (penta)](maze/penta/README.md) — Gödel-encoded 2-register Minsky machine with path length Ω(2↑↑↑n) via the §8 fast-growing-function block construction
 - [Tools](tools/README.md) — Haskell → maze → solution pipeline
   - [hs2maze](tools/hs2maze/README.md) — Haskell-style state machine to atomic-port (*1) maze converter
   - [nd-to-2d](tools/nd-to-2d/README.md) — *n*-register to 2-register Gödel Haskell compiler
