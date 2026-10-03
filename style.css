@@ -7,6 +7,7 @@
   --text: #000000;
   --text-muted: #555555;
   --text-dim: #999999;
+  --error: #c0392b;
   --border-subtle: #aaaaaa;
   --border: #cccccc;
 
@@ -44,6 +45,7 @@ body.darkmode {
   --text: #ffffff;
   --text-muted: #aaaaaa;
   --text-dim: #666666;
+  --error: #d8857c;
   --border-subtle: #555555;
   --border: #333333;
 
@@ -119,6 +121,8 @@ select option { background: var(--canvas-bg); color: var(--text); }
 body.mobile-mode .pan-zoom-hint { display: block; margin-top: 2px; }
 .button-row { display: flex; flex-wrap: wrap; gap: 5px 5px; align-items: center; }
 .button-row .preset-label { margin-left: 12px; }
+.preset-status { font-size: 12px; color: var(--error); }
+.preset-status:empty { display: none; }
 body.mobile-mode .button-row button { flex: 1 1 calc(50% - 5px); min-width: 0; }
 body.mobile-mode .button-row .preset-label { flex: 1 1 100%; margin-left: 0; margin-top: 4px; }
 /* Keep each checkbox and its caption on the same line; wrap between
