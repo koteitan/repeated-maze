@@ -67,4 +67,4 @@ penta.md の 14 個の Fractran 形式ルールを first-match 順に適用:
 - 約 5350 個の catch-all ルール + 約 360 個の zb='x' + 約 270 個の zb='y' Haskell 行
 - 均一な 4 ブロック種: すべての normal ブロックが同じポート配置を持つ (nx, ny, zero も同様)
 
-initial_a=1 は BFS で解ける (directed モードで経路長 約 390)。 ゲーデル結果が x=9 で済むため。 initial_a >= 2 は中間ゲーデル数がペンテーション速度で爆発するため計算不能。
+initial_a=1 は BFS で解ける (directed モードで経路長 約 390)。 ゲーデル結果が x=9 で済むため。 initial_a >= 2 は中間ゲーデル数がペンテーション速度で爆発するため宇宙では計算不能。

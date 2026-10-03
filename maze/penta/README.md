@@ -79,5 +79,5 @@ Each rule is lowered into:
 - Uniform 4 block-types: all normal blocks have the same port layout, etc.
 
 Initial_a=1 is solvable in BFS (path length ~390 in directed mode) since
-the Gödel result is only x=9.  initial_a >= 2 is computationally infeasible
-because the intermediate Gödel numbers blow up pentation-fast.
+the Gödel result is only x=9.  initial_a >= 2 is uncomputable in this
+universe because the intermediate Gödel numbers blow up pentation-fast.
