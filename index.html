@@ -5,6 +5,32 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Repeated Maze Visualizer</title>
 <script>
+/* localStorage namespace helpers.  Every key of this app lives under
+ * "repeated-maze:".  Reads fall back to the legacy un-namespaced key,
+ * writes always go to the new key.  Legacy keys are never removed.
+ * Defined here (first script of the file) so both the FOUC guard below
+ * and the main script further down go through the same accessors. */
+var LS_NS = 'repeated-maze';
+var LS_LEGACY = { state: 'repeated-maze-state' };  /* new name -> old key */
+function lsKey(name) {
+  return LS_NS + ':' + name;
+}
+function lsLoadRaw(name) {
+  try {
+    const raw = localStorage.getItem(lsKey(name));
+    if (raw !== null) return raw;
+    if (LS_LEGACY[name]) return localStorage.getItem(LS_LEGACY[name]);
+  } catch (e) {}
+  return null;
+}
+function lsSaveRaw(name, value) {
+  try { localStorage.setItem(lsKey(name), value); } catch (e) {}
+}
+function lsRemove(name) {
+  /* Only the namespaced key is removed; the legacy key is left alone. */
+  try { localStorage.removeItem(lsKey(name)); } catch (e) {}
+}
+
 /* Apply the darkmode class to <html> before stylesheets render, so the
  * saved-off darkmode users never see a white flash on page load. URL
  * query param (?darkmode=0|1) overrides the persisted state. */
@@ -14,7 +40,7 @@ try {
   if (_params.has('darkmode')) {
     _dark = _params.get('darkmode') === '1';
   } else if (!/(^|[?&])reset(=|&|$)/.test(window.location.search)) {
-    const _saved = localStorage.getItem('repeated-maze-state');
+    const _saved = lsLoadRaw('state');
     if (_saved) {
       try {
         const _st = JSON.parse(_saved);
@@ -1829,7 +1855,6 @@ document.getElementById('chk-step').addEventListener('change', draw);
 document.getElementById('chk-answer-path').addEventListener('change', draw);
 
 /* ---- localStorage persistence ---- */
-const STORAGE_KEY = 'repeated-maze-state';
 const STORAGE_VERSION = 1;
 const TEXTAREA_IDS = ['maze-input', 'answer-input'];
 const CHECKBOX_IDS = ['chk-normal', 'chk-simple', 'chk-diagonal', 'chk-step', 'chk-answer-path', 'chk-darkmode'];
@@ -1862,8 +1887,7 @@ function applyDarkmode() {
  * versionless or wrong-version blob is ignored — the caller should
  * fall back to applyInitialState() to seed defaults. */
 function loadState() {
-  let raw;
-  try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) { return false; }
+  const raw = lsLoadRaw('state');
   if (!raw) return false;
   let state;
   try { state = JSON.parse(raw); } catch (e) { return false; }
@@ -1900,7 +1924,7 @@ function saveState() {
   if (viewState && viewState.userControlled) {
     state.view = { cx: viewState.cx, cy: viewState.cy, zoom: viewState.zoom };
   }
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+  lsSaveRaw('state', JSON.stringify(state));
 }
 
 /* Seed the page with the initial preset + checkbox defaults.  Used
@@ -1924,7 +1948,7 @@ async function applyInitialState() {
 /* Decide whether to restore from storage or seed initial state. */
 const _resetRequested = /(^|[?&])reset(=|&|$)/.test(window.location.search);
 if (_resetRequested) {
-  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+  lsRemove('state');
   /* Strip the `reset` param from the URL so reloading or sharing the
    * page doesn't keep wiping localStorage on every revisit.  All
    * other query params are preserved. */
