@@ -30,6 +30,10 @@ $N$ 端子フラクタル迷路の最浅解の深さは $\Theta(N^2)$ で抑え�
 
 omeometo 氏は、 ブロック $A$ が $(x, y)$ ($x > 0, y > 0$) の位置に、 ブロック $B$ が $(0, y)$ ($y > 0$) の位置に、 ブロック $C$ が $(x, 0)$ ($x > 0$) の位置に反復的に並んでおり、 ブロック $D$ が $(0, 0)$ にあり、 それぞれのブロックの中に状態に対応したターミナルを繋ぐ有向グラフのポートがある図を描いている。
 
+![omeometo 型のブロック配置](koteitan-hs2maze-abcd.png)
+
+図: omeometo 型のブロック配置 ([omeometo, 2018](https://omeometo.hatenablog.com/entry/2018/12/28/155549) の図をもとに描き直したもの)。 右方向と上方向に同じ並びが続く。
+
 さらに同記事では以下が問いかけられた:
 
 > 決定不能なのだとしたら、解の最小手数が問題の「見た目」に対して「考えられないほど」膨れ上がるような問題が存在する、ということで、パズル的にはオイシイわけです。誰かなんか面白いの作りませんかね。
@@ -543,29 +547,35 @@ L^* = \Omega(f(p)) = \Omega(f(\sqrt{C}))
 - **Phase 3** (`pc=2n+2`): $y$ を 0 まで排出するドレインフェーズ
 - **HALT** (`pc=2n+3`): noop で `pc=1` へ
 
-経路長は $n$ に対して $\Theta(n^2)$ オーダーで増大する。 リポジトリには $n = 4, 5, 6$ の例が含まれる:
+経路長は $n$ に対して $\Theta(n^2)$ オーダーで増大する。 リポジトリには $n = 3, 4, 5, 6$ の例が含まれる:
 
 | ファイル | $n$ | 全ターミナル数 $T$ | 最短経路長 |
 |---|---|---|---|
-| `cp2-4.hs` | 4 | 15 | (実測値) |
-| `cp2-5.hs` | 5 | (実測) | (実測値) |
-| `cp2-6.hs` | 6 | (実測) | (実測値) |
+| `cp2-3.hs` | 3 | 13 | 59 |
+| `cp2-4.hs` | 4 | 15 | 98 |
+| `cp2-5.hs` | 5 | 17 | 147 |
+| `cp2-6.hs` | 6 | 19 | 206 |
 
 (具体値は `tools/solver/solver.py` で実測。 visualizer の preset としても提供されている。)
 
-`maze/counter-pump/cp2-4.maze` の出力例 (§7.4 と同じ):
+`maze/counter-pump/cp2-3.maze` の出力例:
 
 ```
-normal: E4-W3, E13-N9, N9-W6, S9-N10, E6-W5, S2-W0, S10-N11, E3-N2,
-        S11-N12, E5-W4, S12-W13, S14-N14;
-nx:     S14-E13, E13-N14, N14-N9, S9-N10, S2-W0, S10-N11, E3-N2, S11-N12;
-ny:     E4-W3, E13-N9, N9-W6, E6-W5, E3-N2, N2-W0, N14-W1, E5-W4;
-zero:   E13-N14, N14-N9, N9-W1, E3-N2, N2-W0
+normal: S8-N9, S12-N12, E11-N8, N8-W5, E5-W4, S9-N10, S10-W11, S2-W0, E3-N2, E4-W3;
+nx:     S8-N9, S12-E11, E11-N12, N12-N8, S9-N10, S2-W0, E3-N2;
+ny:     N12-W1, E11-N8, N8-W5, E5-W4, E3-N2, N2-W0, E4-W3;
+zero:   E11-N12, N12-N8, N8-W1, E3-N2, N2-W0
 ```
 
-![placeholder-cp2-4.png](placeholder-cp2-4.png)
+下記は cp2-3 の描画例である。
 
-### 9.2 cp3 (カウンターポンプ 3 レジスタ版、 nd-to-2d 経由)
+![koteitan-hs2maze-cp2-3.png](koteitan-hs2maze-cp2-3.png)
+
+下記は cp2-3 の最短経路の描画例である。
+
+![koteitan-hs2maze-cp2-3-solution.png](koteitan-hs2maze-cp2-3-solution.png)
+
+### 9.2 cp3 (カウンターポンプ 3 レジスタ版)
 
 3 レジスタ版カウンターポンプ `maze/counter-pump-3/cp3-N-3d.hs` を、 §5 の `nd-to-2d.py` で 2 レジスタ Gödel 化した上で `hs2maze` に通すと、 cp2 より高次の多項式オーダーの経路長を持つ迷路が得られる:
 
