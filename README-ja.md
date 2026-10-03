@@ -26,6 +26,7 @@
   - [nd-to-2d](tools/nd-to-2d/README-ja.md) — *n* レジスタ Haskell から 2 レジスタ Gödel Haskell へのコンパイラ
   - [runhs](tools/runhs/README-ja.md) — Haskell ステートマシンの実行ヘルパ
   - [solver](tools/solver/README-ja.md) — atomic-port (*1) 形式の Python BFS ソルバ
+- [形式証明 (Lean)](lean/README-ja.md) — 最短経路長の最大値 L(n) がどんな計算可能関数でも抑えられないことの Lean 4 による証明
 
 ## ビジュアライゼーション (メイン)
 

@@ -26,6 +26,7 @@ The **maze generator search** that maximizes shortest path length for a given nt
   - [nd-to-2d](tools/nd-to-2d/README.md) — *n*-register to 2-register Gödel Haskell compiler
   - [runhs](tools/runhs/README.md) — Haskell state machine execution helper
   - [solver](tools/solver/README.md) — Python BFS solver for the atomic-port (*1) format
+- [Formal proofs (Lean)](lean/README.md) — Lean 4 proof that the largest shortest-path length L(n) is not bounded by any computable function
 
 ## Visualization (main UI)
 
