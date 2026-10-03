@@ -35,7 +35,7 @@ $N$ 端子フラクタル迷路の最浅解の深さは $\Theta(N^2)$ で抑え�
 
 omeometo 氏は、 ブロック $A$ が $(x, y)$ ($x > 0, y > 0$) の位置に、 ブロック $B$ が $(0, y)$ ($y > 0$) の位置に、 ブロック $C$ が $(x, 0)$ ($x > 0$) の位置に反復的に並んでおり、 ブロック $D$ が $(0, 0)$ にあり、 それぞれのブロックの中に状態に対応したターミナルを繋ぐ有向グラフのポートがある図を描いている。
 
-![omeometo 型のブロック配置](koteitan-hs2maze-abcd.png)
+![omeometo 型のブロック配置](Kot-hs2maze-abcd.png)
 
 図: omeometo 型のブロック配置 ([omeometo, 2018](https://omeometo.hatenablog.com/entry/2018/12/28/155549) の図をもとに描き直したもの)。 右方向と上方向に同じ並びが続く。
 
@@ -49,7 +49,7 @@ omeometo 氏は、 ブロック $A$ が $(x, y)$ ($x > 0, y > 0$) の位置に�
 
 下記はペンテーション迷路の一部の図である。
 
-![koteitan-pentation-maze.png](koteitan-pentation-maze.png)
+![Kot-hs2maze-pentation-maze.png](Kot-hs2maze-pentation-maze.png)
 
 23種類のブロック種類があり、また、その配置は単純ではなく複雑な規則性を持っている。
 
@@ -105,7 +105,7 @@ P &=& \{0, 1, \ldots, N_p - 1\} &\quad \text{プログラム行集合}\\
 
 下記は $R$, $P$, $\delta$ の模式図である。
 
-![koteitan-minsky-machine.png](koteitan-minsky-machine.png)
+![Kot-hs2maze-minsky-machine.png](Kot-hs2maze-minsky-machine.png)
 
 命令表 $\iota$ は各行 $p \in P$ に次のいずれかの命令を割り当てる ($0 \leq i < D$, $p', p'' \in P$)。 1 ステップの遷移 $\delta(p, R)$ は $\iota(p)$ から決まる部分関数である ($e_i$ は第 $i$ 成分だけ 1 のベクトル):
 
@@ -128,7 +128,7 @@ P &=& \{0, 1, \ldots, N_p - 1\} &\quad \text{プログラム行集合}\\
 
 下記はパターン繰り返し迷路の模式図である。 
 
-![koteitan-repeated-maze.png](koteitan-repeated-maze.png)
+![Kot-hs2maze-repeated-maze.png](Kot-hs2maze-repeated-maze.png)
 
 ### 3.1 ブロックとターミナル
 
@@ -377,7 +377,7 @@ T_2 &=& \Theta\Big( \sum_{t < T_n} x_t \Big)
 
 下記は $(dx, dy) = (1, 0)$ の場合の分解の模式図である。 (a) が概念的な辺、 (b) が分解後の 2 本のポートである。
 
-![koteitan-port-split.png](koteitan-port-split.png)
+![Kot-hs2maze-port-split.png](Kot-hs2maze-port-split.png)
 
 - $(dx, dy) = (1, 0)$ の場合 ($x$ を 1 増やす): ブロック $(x_b, y_b)$ の東辺と $(x_b+1, y_b)$ の西辺は同一の点 $E_{p'}@(x_b, y_b) = W_{p'}@(x_b+1, y_b)$ である。 これを中継点として:
   \begin{eqnarray}
@@ -454,7 +454,7 @@ d = 2,\; I(t) = \{t - x,\; t - y\}\;:&\quad& P \;\leftarrow\; \big( P \setminus 
 
 下記は simplify の模式図である。 上段が $d = 1$、 下段が $d = 2$ の場合である。
 
-![koteitan-simplify.png](koteitan-simplify.png)
+![Kot-hs2maze-simplify.png](Kot-hs2maze-simplify.png)
 
 simplify は無向グラフのホモトピー類を変えない局所変形のみを行うため、 任意の 2 状態間の最短距離は保たれる (§7.3 で利用)。
 
@@ -482,7 +482,7 @@ P \;\leftarrow\; \big( P \setminus I(t_C) \big) \;\cup\; \{ u_i - u_{i+1} \mid 0
 
 下記は daisy chain の模式図である。 左が置換前 ($t_C$ を中心とする星型)、 右が置換後 (CCW 順の鎖) である。
 
-![koteitan-daisy-chain.png](koteitan-daisy-chain.png)
+![Kot-hs2maze-daisy-chain.png](Kot-hs2maze-daisy-chain.png)
 
 ### 7.3 無向化しても最短経路長が変わらないことの証明
 
@@ -583,11 +583,11 @@ zero:   E11-N12, N12-N8, N8-W1, E3-N2, N2-W0
 
 下記は n=3 の描画例である。
 
-![koteitan-hs2maze-cp2-3.png](koteitan-hs2maze-cp2-3.png)
+![Kot-hs2maze-cp2-3.png](Kot-hs2maze-cp2-3.png)
 
 下記は n=3 の最短経路の描画例である。
 
-![koteitan-hs2maze-cp2-3-solution.png](koteitan-hs2maze-cp2-3-solution.png)
+![Kot-hs2maze-cp2-3-solution.png](Kot-hs2maze-cp2-3-solution.png)
 
 まず x=n=3 まで n=3 のターミナルを使って右移動をする。
 その後、上に n=3 回移動して y を増やす。
@@ -609,11 +609,11 @@ cp3-2 は visualizer の preset としても提供されており、 cp2 系よ�
 
 下記は n=2 の描画例である。
 
-![koteitan-hs2maze-cp3-2.png](koteitan-hs2maze-cp3-2.png)
+![Kot-hs2maze-cp3-2.png](Kot-hs2maze-cp3-2.png)
 
 下記は n=2 の最短経路の描画例である。
 
-![koteitan-hs2maze-cp3-2-solution.png](koteitan-hs2maze-cp3-2-solution.png)
+![Kot-hs2maze-cp3-2-solution.png](Kot-hs2maze-cp3-2-solution.png)
 
 (x,y) の動きだけを図示している。ゲーデル化のためにこの図を見ても計算の内容はよく分からないが、x=0 の辺と y=0 の辺を直線上に行き来していることが分かる。
 
@@ -665,13 +665,13 @@ zero:   N17-W1, E4-N3, E16-N15, N2-W0, E9-N8, E6-N5, ...  (8 ports)
 
 経路 (117 ステップ): $(0, 0, W_0) \to (0, 0, N_2) \to (0, 1, S_2) \to \cdots \to (0, 0, N_{17}) \to (0, 0, W_1)$
 
-下記は n=3 (最短経路長 $approx 2^3$) の描画例である。
+下記は n=3 (最短経路長 $\approx 2^3$) の描画例である。
 
-![koteitan-hs2maze-md3.png](koteitan-hs2maze-md3.png)
+![Kot-hs2maze-md3.png](Kot-hs2maze-md3.png)
 
 下記は n=3 の最短経路の描画例である。
 
-![koteitan-hs2maze-md3-solution.png](koteitan-hs2maze-md3-solution.png)
+![Kot-hs2maze-md3-solution.png](Kot-hs2maze-md3-solution.png)
 
 まず (x,y)=(1,0) に向かう。そこから下記のように動く。
 - (-1,+1) の方向に進んで左端の (0, y) に到達
@@ -682,9 +682,9 @@ zero:   N17-W1, E4-N3, E16-N15, N2-W0, E9-N8, E6-N5, ...  (8 ports)
 - これを n 回繰り返して左端の (0, y) に到達
 - (0,-1) 方向に $2^n - 1$ 回進んで (0,0) に到達
 
-下記は n=5 (最短経路長 $approx 2^5$) の描画例である。
+下記は n=5 (最短経路長 $\approx 2^5$) の描画例である。
 
-![koteitan-hs2maze-md5-solution.png](koteitan-hs2maze-md5-solution.png)
+![Kot-hs2maze-md5-solution.png](Kot-hs2maze-md5-solution.png)
 
 ### 9.4 ペンテーション迷路 (最短経路長 $\Omega(3^{2 \uparrow\uparrow\uparrow n})$)
 
