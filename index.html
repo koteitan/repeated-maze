@@ -407,7 +407,10 @@ function setupCanvas(canvasId, wrapId, bounds) {
      * the container; height follows the remaining window height so the
      * canvas stays visible without scrolling. */
     cssW = availW;
-    const wrapTop = wrap.getBoundingClientRect().top;
+    /* Page (not viewport) offset: a viewport offset goes negative once the
+     * page is scrolled, which grew the canvas on every redraw and pushed
+     * the content below it (the x,y-only graph) away while dragging. */
+    const wrapTop = wrap.getBoundingClientRect().top + window.scrollY;
     const availH = Math.max(200, Math.floor(window.innerHeight - wrapTop - 40));
     /* Mobile fallback: when the remaining window height is too short for
      * the maze to be usable, make the canvas square (= width) so the user
@@ -1201,13 +1204,13 @@ function drawSimple(path, bounds) {
   const wrap = document.getElementById('canvas-wrap-simple');
   const ctx = canvas.getContext('2d');
 
-  /* Canvas size matches the main graph: width = container, height =
-   * remaining window height with a 40px bottom margin (min 200).
-   * Pan / zoom only changes the viewport contents, not the canvas. */
+  /* Canvas width = container; height is fixed (4x the old 200px minimum)
+   * so it never depends on the scroll position.  Pan / zoom only changes
+   * the viewport contents, not the canvas. */
+  const SIMPLE_CANVAS_H = 800;
   const availW = wrap.parentElement.clientWidth - 4;
-  const wrapTop = wrap.getBoundingClientRect().top;
   const cssW = availW;
-  const cssH = Math.max(200, Math.floor(window.innerHeight - wrapTop - 40));
+  const cssH = SIMPLE_CANVAS_H;
   canvas.style.width = cssW + 'px';
   canvas.style.height = cssH + 'px';
   canvas.width = cssW;
