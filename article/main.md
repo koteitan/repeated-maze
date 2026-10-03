@@ -581,11 +581,11 @@ ny:     N12-W1, E11-N8, N8-W5, E5-W4, E3-N2, N2-W0, E4-W3;
 zero:   E11-N12, N12-N8, N8-W1, E3-N2, N2-W0
 ```
 
-下記は cp2-3 の描画例である。
+下記は n=3 の描画例である。
 
 ![koteitan-hs2maze-cp2-3.png](koteitan-hs2maze-cp2-3.png)
 
-下記は cp2-3 の最短経路の描画例である。
+下記は n=3 の最短経路の描画例である。
 
 ![koteitan-hs2maze-cp2-3-solution.png](koteitan-hs2maze-cp2-3-solution.png)
 
@@ -607,11 +607,11 @@ zero:   E11-N12, N12-N8, N8-W1, E3-N2, N2-W0
 
 cp3-2 は visualizer の preset としても提供されており、 cp2 系よりさらに長い経路を持つ。
 
-下記は cp3-2 の描画例である。
+下記は n=2 の描画例である。
 
 ![koteitan-hs2maze-cp3-2.png](koteitan-hs2maze-cp3-2.png)
 
-下記は cp3-2 の最短経路の描画例である。
+下記は n=2 の最短経路の描画例である。
 
 ![koteitan-hs2maze-cp3-2-solution.png](koteitan-hs2maze-cp3-2-solution.png)
 
@@ -665,11 +665,11 @@ zero:   N17-W1, E4-N3, E16-N15, N2-W0, E9-N8, E6-N5, ...  (8 ports)
 
 経路 (117 ステップ): $(0, 0, W_0) \to (0, 0, N_2) \to (0, 1, S_2) \to \cdots \to (0, 0, N_{17}) \to (0, 0, W_1)$
 
-下記は md3 の描画例である。
+下記は n=3 (最短経路長 $approx 2^3$) の描画例である。
 
 ![koteitan-hs2maze-md3.png](koteitan-hs2maze-md3.png)
 
-下記は md3 の最短経路の描画例である。
+下記は n=3 の最短経路の描画例である。
 
 ![koteitan-hs2maze-md3-solution.png](koteitan-hs2maze-md3-solution.png)
 
@@ -681,6 +681,10 @@ zero:   N17-W1, E4-N3, E16-N15, N2-W0, E9-N8, E6-N5, ...  (8 ports)
 - ...
 - これを n 回繰り返して左端の (0, y) に到達
 - (0,-1) 方向に $2^n - 1$ 回進んで (0,0) に到達
+
+下記は n=5 (最短経路長 $approx 2^5$) の描画例である。
+
+![koteitan-hs2maze-md5-solution.png](koteitan-hs2maze-md5-solution.png)
 
 ### 9.4 ペンテーション迷路 (最短経路長 $\Omega(3^{2 \uparrow\uparrow\uparrow n})$)
 
