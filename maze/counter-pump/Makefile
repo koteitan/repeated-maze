@@ -1,4 +1,4 @@
-KS = 4 5 6
+KS = 3 4 5 6
 HS = $(KS:%=cp2-%.hs)
 MAZES = $(KS:%=cp2-%.maze)
 
