@@ -72,7 +72,7 @@ omeometo 氏の繰り返し迷路とコラッツ迷路型の違いを以下に�
    - **4-1. カウンターポンプ (cp2)**: 反復回数 $n$ に対して経路長 $\Theta(n^2)$ の 2 レジスタ迷路。
    - **4-2. カウンターポンプ-3 (cp3)**: 3 レジスタ版を `nd-to-2d` で 2 レジスタ化し、 cp2 より高次の多項式オーダーの経路長を持つ迷路。
    - **4-3. ミンスキー倍加マシン (md)**: サイクル数 $k$ に対して経路長 $\Theta(2^k)$ の指数オーダー迷路。
-   - **4-4. ペンテーション迷路 (penta)**: 入力 $n$ に対して経路長 $\Omega(2 \uparrow\uparrow\uparrow n)$ の巨大関数オーダー迷路。 旧版が 23 種類のブロックで実現していたものを **均一な 4 種ブロック** で再構築した。
+   - **4-4. ペンテーション迷路 (penta)**: 入力 $n$ に対して経路長 $\Omega(3^{2 \uparrow\uparrow\uparrow n})$ の巨大関数オーダー迷路。 旧版が 23 種類のブロックで実現していたものを **均一な 4 種ブロック** で再構築した。
 5. **繰り返し迷路ビューワー・ソルバーの作成**: 上記の各迷路を Web ブラウザで描画・探索できるビジュアライザと、 BFS による経路長実測ソルバーを作成し公開した ([repeated-maze](https://koteitan.github.io/repeated-maze/))。
 6. **Lean による形式証明**: 4 種ブロックの繰り返し迷路について、 次の 2 つを Lean 4 + Mathlib で `sorry` なしに証明した ([lean/README-ja.md](../lean/README-ja.md))。 使う公理は Lean の標準公理だけである。
    - **6-1. 到達判定の決定不能性**: 迷路を入力として、 start から goal に着けるかを判定するアルゴリズムは存在しない。 ポートを一方通行とする場合 (有向) と、 両方向に進める場合 (無向) の両方で成り立つ。 §1.3 の omeometo 氏の略証が述べた決定不能性を、 本研究の迷路の形式で形式化したものにあたる。
@@ -341,6 +341,22 @@ godel (x, y, rk_extra_{k-1}) = godel (x+1, y, pass     )
 
 実装は `tools/nd-to-2d/nd-to-2d.py` の `mul_p` / `div_p` / `test_ndiv` 関数 (line 446-512) で各サブルーチンを生成している。
 
+### 5.3 ステップ数の増え方
+
+§5.2 の各サブルーチンは $x$ を 1 ずつ数えるループなので、 1 回の実行に $x$ に比例するステップ数がかかる (比例定数は $p_i$ で決まる)。 元の n レジスタマシンの実行が $T_n$ ステップで、 $t$ ステップ目のゲーデル数を $x_t = \prod_i p_i^{r_i(t)}$ とすると、 2 レジスタ版のステップ数 $T_2$ は
+
+\begin{eqnarray}
+T_2 &=& \Theta\Big( \sum_{t < T_n} x_t \Big)
+\end{eqnarray}
+
+となる。 各レジスタの最大値を $R_i = \max_t r_i(t)$ とおくと、 $x_t$ の最大値は $p_i^{R_i}$ 以上であり $\prod_i p_i^{R_i}$ 以下なので
+
+\begin{eqnarray}
+\max_i\, p_i^{R_i} \;\lesssim\; T_2 \;\lesssim\; T_n \cdot \prod_i p_i^{R_i}
+\end{eqnarray}
+
+が成り立つ。 すなわち `nd-to-2d` を通すと、 ステップ数はレジスタの値を素数の肩に乗せた大きさまで伸びる。 例えば §9.2 の cp3 は、 元の 3 レジスタマシンでは $n^3$ 回程度しか回らないが、 迷路の最短経路長は $n$ が 1 増えるごとに約 33〜38 倍になる。
+
 ---
 
 ## 6. Haskell から有向グラフ迷路への変換 (`hs2maze --directed`)
@@ -573,6 +589,12 @@ zero:   E11-N12, N12-N8, N8-W1, E3-N2, N2-W0
 
 ![koteitan-hs2maze-cp2-3-solution.png](koteitan-hs2maze-cp2-3-solution.png)
 
+まず x=n=3 まで n=3 のターミナルを使って右移動をする。
+その後、上に n=3 回移動して y を増やす。
+その後、x を 1 減らして、再び上に n=3 回移動して y を増やす。
+これを x=0 になるまで繰り返す。
+これより $n\cdot n=n^2$ 回の上移動が行われる。
+
 ### 9.2 カウンターポンプ 3 レジスタ版(Θ(n^3))
 
 3 レジスタ版カウンターポンプ `maze/counter-pump-3/cp3-N-3d.hs` を、 §5 の `nd-to-2d.py` で 2 レジスタ Gödel 化した上で `hs2maze` に通すと、 cp2 より高次の多項式オーダーの経路長を持つ迷路が得られる:
@@ -592,6 +614,8 @@ cp3-2 は visualizer の preset としても提供されており、 cp2 系よ�
 下記は cp3-2 の最短経路の描画例である。
 
 ![koteitan-hs2maze-cp3-2-solution.png](koteitan-hs2maze-cp3-2-solution.png)
+
+(x,y) の動きだけを図示している。ゲーデル化のためにこの図を見ても計算の内容はよく分からないが、x=0 の辺と y=0 の辺を直線上に行き来していることが分かる。
 
 ### 9.3 ミンスキー倍加マシン (最短経路長 $\Theta(2^k)$)
 
@@ -649,15 +673,24 @@ zero:   N17-W1, E4-N3, E16-N15, N2-W0, E9-N8, E6-N5, ...  (8 ports)
 
 ![koteitan-hs2maze-md3-solution.png](koteitan-hs2maze-md3-solution.png)
 
-### 9.4 ペンテーション迷路 (penta, $\Omega(2 \uparrow\uparrow\uparrow n)$ 迷路)
+まず (x,y)=(1,0) に向かう。そこから下記のように動く。
+- (-1,+1) の方向に進んで左端の (0, y) に到達
+- (+2,-1) の方向に進んで下端の (x, 0) に到達
+- (-1,+1) の方向に進んで左端の (0, y) に到達
+- (+2,-1) の方向に進んで下端の (x, 0) に到達
+- ...
+- これを n 回繰り返して左端の (0, y) に到達
+- (0,-1) 方向に $2^n - 1$ 回進んで (0,0) に到達
 
-ミンスキー倍加が指数オーダー $\Theta(2^k)$ で頭打ちになるのに対し、 §8 で示した「巨大関数 $f$ を計算するミンスキーマシン $M_f$ をブロックに埋め込む」 構成を $f(n) = 2 \uparrow\uparrow\uparrow n$ (ペンテーション) に適用すると、 入力 $n$ に対して経路長 $L^* = \Omega(2 \uparrow\uparrow\uparrow n)$ の迷路が得られる。
+### 9.4 ペンテーション迷路 (最短経路長 $\Omega(3^{2 \uparrow\uparrow\uparrow n})$)
+
+ミンスキー倍加が指数オーダー $\Theta(2^k)$ で頭打ちになるのに対し、 §8 で示した「巨大関数 $f$ を計算するミンスキーマシン $M_f$ をブロックに埋め込む」 構成を $f(n) = 2 \uparrow\uparrow\uparrow n$ (ペンテーション) に適用すると、 入力 $n$ に対して経路長 $L^* = \Omega(3^{2 \uparrow\uparrow\uparrow n})$ の迷路が得られる (計算結果はゲーデル符号化 $x = 3^{2 \uparrow\uparrow\uparrow n}$ として迷路の座標に現れ、 これを 0 まで減らすだけで $x$ 歩かかるため)。
 
 これは旧版 [ペンテーション迷路](https://googology.fandom.com/ja/wiki/%E3%83%A6%E3%83%BC%E3%82%B6%E3%83%BC%E3%83%96%E3%83%AD%E3%82%B0:Koteitan/%E3%83%9A%E3%83%B3%E3%83%86%E3%83%BC%E3%82%B7%E3%83%A7%E3%83%B3%E8%BF%B7%E8%B7%AF) (koteitan, 2025) の再構成である。 旧版は 23 種類のブロックと位置依存規則で密度を稼いでいたが、 本研究では §6 / §7 / §5 のパイプライン (Haskell 記述 → `hs2maze` → 4 種ブロック迷路、 必要に応じて `nd-to-2d` で n レジスタを 2 レジスタ化) を通すことで、 **均一な 4 種ブロック (`normal` / `nx` / `ny` / `zero`)** のみで構成される繰り返し迷路に落とし込めることを示す。
 
 #### 9.4.1 構成
 
-`maze/penta/make_penta.py` は、 入力 $r_0 = a$ ($a$ は非負整数) を Gödel 符号化 $x = 2^a$ として 2 レジスタミンスキーマシンに与え、 14 個の Fractran 形式ルールでペンテーション計算を行う Haskell ソース `penta.hs` を自動生成する。 具体的には、 Minsky 1967 のレジスタマシンとして以下を実装する:
+`maze/penta/make_penta.py` は、 入力 $r_0 = a$ ($a$ は非負整数) を Gödel 符号化 $x = 2^a$ として 2 レジスタミンスキーマシンに与え、 14 個の Fractran 形式ルールでペンテーション計算を行う Haskell ソース [`penta.hs`](../maze/penta/penta.hs) を自動生成する。 具体的には、 Minsky 1967 のレジスタマシンとして以下を実装する:
 
 - **Phase 1**: `pc=0..` で $2^a$ 回 INC x、 入力 $x = 2^a$ をセットアップ
 - **Phase 2**: 14 ルール first-match のループ ($x$ の素因数分解パターンに応じた $a/b$ Fractran 操作を実行)
@@ -667,11 +700,10 @@ zero:   N17-W1, E4-N3, E16-N15, N2-W0, E9-N8, E6-N5, ...  (8 ports)
 
 入力 $a$ に対して計算結果は $r_1 = 2 \uparrow\uparrow\uparrow a$ (Gödel 符号化後 $x = 3^{2 \uparrow\uparrow\uparrow a}$) となる。
 
-#### 9.4.2 規模 (initial_a=1)
-
-`make_penta.py` の出力 `penta.hs` (initial_a=1) は約 5350 個の pc 値、 約 5350 個の catch-all ルール + 360 個の zb='x' + 273 個の zb='y' Haskell 行で構成され、 `hs2maze` を通すと normal/nx/ny/zero の 4 ブロック種それぞれ 1 万個前後のポートを持つ均一迷路となる。
-
-initial_a=1 は BFS で解ける (directed モードで経路長 約 390)。 initial_a $\geq 2$ は中間ゲーデル数がペンテーションオーダーで爆発するため、 BFS による解法は計算不能となる。
+$a = 4$ の場合の Haskell は [`penta.hs`](../maze/penta/penta.hs) である。
+これを `hs2maze` で迷路に変換したものは [`penta.maze`](../maze/penta/penta.maze) である。
+`penta.maze` の端子数は 22400、 ポート数は 11494 である。
+`penta.maze` の最短経路長は $3^{2 \uparrow\uparrow\uparrow 4} = 3^{\overbrace{2^{2^{\cdot^{\cdot^{\cdot^{2}}}}}}^{65536 \text{ 個}}}$ 程度であると推測できる。
 
 ---
 
