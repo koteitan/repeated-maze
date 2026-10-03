@@ -18,7 +18,7 @@
 [^fractal]: フラクタル: ここで言う "フラクタル" は [1981 John E. Hutchinson, "Fractals and Self Similarity"](https://maths-people.anu.edu.au/~john/Assets/Research%20Papers/fractals_self-similarity.pdf) でのフラクタルの定義に従い、縮小倍率 $\text{Lip}F \lt 1$ を用いる。
 
 ### 1.2 フラクタル迷路の複雑性
-$N$ 端子フラクタル迷路の最浅解の深さは $\Theta(N^2)$ で抑えられることが De Biasi によって証明されている。 ([De Biasi, 2012](https://cstheory.stackexchange.com/questions/11024/decidability-of-fractal-maze))。
+$N$ 端子フラクタル迷路の最浅解の深さは $\Theta(N^2)$ で抑えられることが De Biasi によって証明された。 ([De Biasi, 2012](https://cstheory.stackexchange.com/questions/11024/decidability-of-fractal-maze))。
 
 ### 1.3 omeometo の示唆
 
@@ -40,7 +40,13 @@ omeometo 氏は、 ブロック $A$ が $(x, y)$ ($x > 0, y > 0$) の位置に�
 >
 > — omeometo, 2018
 
-[ペンテーション迷路](https://googology.fandom.com/ja/wiki/%E3%83%A6%E3%83%BC%E3%82%B6%E3%83%BC%E3%83%96%E3%83%AD%E3%82%B0:Koteitan/%E3%83%9A%E3%83%B3%E3%83%86%E3%83%BC%E3%82%B7%E3%83%A7%E3%83%B3%E8%BF%B7%E8%B7%AF) はこの問いへの一つの回答だったが、コラッツ迷路に近い "周期構造に計算過程を埋め込む" 設計のため、ブロック種類が多く、配置も複雑だった。 omeometo 氏の繰り返し迷路とコラッツ迷路型の違いを以下に整理する:
+[ペンテーション迷路](https://googology.fandom.com/ja/wiki/%E3%83%A6%E3%83%BC%E3%82%B6%E3%83%BC%E3%83%96%E3%83%AD%E3%82%B0:Koteitan/%E3%83%9A%E3%83%B3%E3%83%86%E3%83%BC%E3%82%B7%E3%83%A7%E3%83%B3%E8%BF%B7%E8%B7%AF) はこの問いへの一つの回答だったが、[コラッツ迷路](https://x.com/koteitan/status/1439100327697862657)に近い "周期構造に計算過程を埋め込む" 設計のため、ブロック種類が多く、配置も複雑だった。
+
+下記はペンテーション迷路の一部の図である。
+
+![koteitan-pentation-maze.png](koteitan-pentation-maze.png)
+
+omeometo 氏の繰り返し迷路とコラッツ迷路型の違いを以下に整理する:
 
 | 観点 | omeometo 型 | コラッツ迷路型 |
 |---|---|---|
