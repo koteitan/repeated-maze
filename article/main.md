@@ -18,7 +18,7 @@
 [^fractal]: フラクタル: ここで言う "フラクタル" は [1981 John E. Hutchinson, "Fractals and Self Similarity"](https://maths-people.anu.edu.au/~john/Assets/Research%20Papers/fractals_self-similarity.pdf) でのフラクタルの定義に従い、縮小倍率 $\text{Lip}F \lt 1$ を用いる。
 
 ### 1.2 フラクタル迷路の複雑性
-$N$ 端子フラクタル迷路の最浅解の深さは $\Theta(N^2)$ で抑えられることが De Biasi によって証明されている。 ([De Biasi, 2012](https://cstheory.stackexchange.com/questions/11024/decidability-of-fractal-maze)。
+$N$ 端子フラクタル迷路の最浅解の深さは $\Theta(N^2)$ で抑えられることが De Biasi によって証明されている。 ([De Biasi, 2012](https://cstheory.stackexchange.com/questions/11024/decidability-of-fractal-maze))。
 
 ### 1.3 omeometo の示唆
 
@@ -43,7 +43,8 @@ omeometo 氏は、 ブロック $A$ が $(x, y)$ ($x > 0, y > 0$) の位置に�
 | ブロック種類数 | 4 種 ($A$ / $B$ / $C$ / $D$) | 23 種 |
 | ブロックの配置 | 左端に $B$、 下端に $C$、 原点に $D$、 残りは $A$ で単純 | ブロック種別によって異なる直線上に、 異なる間隔で特定のブロック種別のブロックが配置されている |
 | 実装内容とアーキテクチャの分離 | ブロック種別とその配置はアーキテクチャによって不変。ターミナル配置・ポート配置は実装内容依存 | ターミナル配置・ポート配置・ブロック種別・ブロック配置がすべて実装内容既存 |
-### 1.3 本研究の貢献
+
+### 1.4 本研究の貢献
 
 本研究の貢献は次の五点である。
 
@@ -56,6 +57,15 @@ omeometo 氏は、 ブロック $A$ が $(x, y)$ ($x > 0, y > 0$) の位置に�
    - **4-3. ミンスキー倍加マシン (md)**: サイクル数 $k$ に対して経路長 $\Theta(2^k)$ の指数オーダー迷路。
    - **4-4. ペンテーション迷路 (penta)**: 入力 $n$ に対して経路長 $\Omega(2 \uparrow\uparrow\uparrow n)$ の巨大関数オーダー迷路。 旧版が 23 種類のブロックで実現していたものを **均一な 4 種ブロック** で再構築した。
 5. **繰り返し迷路ビューワー・ソルバーの作成**: 上記の各迷路を Web ブラウザで描画・探索できるビジュアライザと、 BFS による経路長実測ソルバーを作成し公開した ([repeated-maze](https://koteitan.github.io/repeated-maze/))。
+
+貢献 1-3 の変換の流れを以下に示す:
+
+```mermaid
+flowchart TD
+    A["任意のDレジスタミンスキーマシン"] --> B["Nレジスター haskell"]
+    B -->|"nd-to-2d (ゲーデル数化)"| C["2レジスター haskell"]
+    C -->|"hs2maze.py"| D["2次元パターン繰り返し迷路"]
+```
 
 ---
 
