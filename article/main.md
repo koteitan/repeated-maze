@@ -15,6 +15,11 @@
 - **フラクタル迷路** (Mark J. P. Wolf, 1999): 同じ迷路の縮小版が再帰的に埋め込まれる構造。
 - **端に異なる迷路がある繰り返し迷路**: 連続の迷路。[omeometo の日記の「2 次元的な奴」の章](https://omeometo.hatenablog.com/entry/2018/12/28/155549)にてコンセプトが紹介され、omeometo の twitter にて[ピラミッド迷路](https://x.com/omeometo/status/1436627948677648384)が実装例として紹介された。
 
+下記はフラクタル迷路の例である。
+
+<!-- この画像は fandom 上では Kot-mazes-extropy-fractal-maze.png で引用できる。 -->
+![Kot-mazes-extropy-fractal-maze.png](Kot-mazes-extropy-fractal-maze.png)
+
 [^fractal]: フラクタル: ここで言う "フラクタル" は [1981 John E. Hutchinson, "Fractals and Self Similarity"](https://maths-people.anu.edu.au/~john/Assets/Research%20Papers/fractals_self-similarity.pdf) でのフラクタルの定義に従い、縮小倍率 $\text{Lip}F \lt 1$ を用いる。
 
 ### 1.2 フラクタル迷路の複雑性
@@ -46,6 +51,8 @@ omeometo 氏は、 ブロック $A$ が $(x, y)$ ($x > 0, y > 0$) の位置に�
 
 ![koteitan-pentation-maze.png](koteitan-pentation-maze.png)
 
+23種類のブロック種類があり、また、その配置は単純ではなく複雑な規則性を持っている。
+
 omeometo 氏の繰り返し迷路とコラッツ迷路型の違いを以下に整理する:
 
 | 観点 | omeometo 型 | コラッツ迷路型 |
@@ -56,7 +63,7 @@ omeometo 氏の繰り返し迷路とコラッツ迷路型の違いを以下に�
 
 ### 1.4 本研究の貢献
 
-本研究の貢献は次の五点である。
+本研究の貢献は次の六点である。
 
 1. **汎用コンパイラ `hs2maze`**: 任意の 2 レジスタミンスキーマシンを Haskell 風構文で記述すれば、対応する 2 次元繰り返し迷路 (無向グラフ) を機械的に生成できる Python ツールを実装した。
 2. **n レジスタ → 2 レジスタの Gödel 化コンパイラ `nd-to-2d`**: 任意の n レジスタミンスキーマシンの Haskell ソースを Gödel 符号化 ($x = \prod p_i^{r_i}$) によって 2 レジスタ版に変換するコンパイラを実装した。これにより、3 レジスタ以上のミンスキーマシン (例: counter-pump-3) も `hs2maze` 経由で迷路化できる。
@@ -67,14 +74,18 @@ omeometo 氏の繰り返し迷路とコラッツ迷路型の違いを以下に�
    - **4-3. ミンスキー倍加マシン (md)**: サイクル数 $k$ に対して経路長 $\Theta(2^k)$ の指数オーダー迷路。
    - **4-4. ペンテーション迷路 (penta)**: 入力 $n$ に対して経路長 $\Omega(2 \uparrow\uparrow\uparrow n)$ の巨大関数オーダー迷路。 旧版が 23 種類のブロックで実現していたものを **均一な 4 種ブロック** で再構築した。
 5. **繰り返し迷路ビューワー・ソルバーの作成**: 上記の各迷路を Web ブラウザで描画・探索できるビジュアライザと、 BFS による経路長実測ソルバーを作成し公開した ([repeated-maze](https://koteitan.github.io/repeated-maze/))。
+6. **Lean による形式証明**: 4 種ブロックの繰り返し迷路について、 次の 2 つを Lean 4 + Mathlib で `sorry` なしに証明した ([lean/README-ja.md](../lean/README-ja.md))。 使う公理は Lean の標準公理だけである。
+   - **6-1. 到達判定の決定不能性**: 迷路を入力として、 start から goal に着けるかを判定するアルゴリズムは存在しない。 ポートを一方通行とする場合 (有向) と、 両方向に進める場合 (無向) の両方で成り立つ。 §1.3 の omeometo 氏の略証が述べた決定不能性を、 本研究の迷路の形式で形式化したものにあたる。
+   - **6-2. 最短経路長の増大 (主定理)**: ポート数 $n$ 以下の解ける迷路の最短経路長の最大値を $L(n)$ とすると、 どんな計算可能関数 $f$ についても $\exists n,\ L(n) > f(n)$ が成り立つ。 すなわち $L(n)$ はどんな計算可能関数でも上から抑えられない。 これは §1.3 の omeometo 氏の問い「解の最小手数が問題の見た目に対して考えられないほど膨れ上がる問題」が存在することの、 形式的な裏付けである。
 
 貢献 1-3 の変換の流れを以下に示す:
 
 ```mermaid
 flowchart TD
     A["任意のDレジスタミンスキーマシン"] --> B["Nレジスター haskell"]
-    B -->|"nd-to-2d (ゲーデル数化)"| C["2レジスター haskell"]
-    C -->|"hs2maze.py"| D["2次元パターン繰り返し迷路"]
+    B -->|"2レジスタ化(nd-to-2d)"| C["2レジスター haskell"]
+    C -->|"迷路化(hs2maze.py)"| D["2次元パターン繰り返し迷路 (有向グラフ)"]
+    D -->|"無向グラフ化(hs2maze.py)"| E["2次元パターン繰り返し迷路 (無向グラフ)"]
 ```
 
 ---
@@ -86,19 +97,23 @@ flowchart TD
 $D$ レジスタミンスキーマシン $M$ は次の組で与えられる:
 
 \begin{eqnarray}
-M &=& (R, P, \delta, p_\mathrm{start}, p_\mathrm{halt})\\
+M &=& (R, P, \iota, p_\mathrm{start}, p_\mathrm{halt})\\
 R &=& (r_0, r_1, \ldots, r_{D-1}) \in \mathbb{N}^D &\quad \text{レジスタ}\\
 P &=& \{0, 1, \ldots, N_p - 1\} &\quad \text{プログラム行集合}\\
-\delta: P \times \mathbb{N}^D &\to& P \times \mathbb{N}^D &\quad \text{遷移関数}
+\iota: P &\to& I &\quad \text{命令表}
 \end{eqnarray}
 
-遷移関数 $\delta$ は各行 $p \in P$ に以下のいずれかの命令を割り当てることで定義される ($0 \leq i < D$)。 各命令は現在のレジスタ値 $R$ と PC $p$ から次の状態 $(R', p')$ を返す $\delta$ の具体形を与える:
+下記は $R$, $P$, $\delta$ の模式図である。
 
-| 命令 | $\delta(p, R)$ の効果 |
+![koteitan-minsky-machine.png](koteitan-minsky-machine.png)
+
+命令表 $\iota$ は各行 $p \in P$ に次のいずれかの命令を割り当てる ($0 \leq i < D$, $p', p'' \in P$)。 1 ステップの遷移 $\delta(p, R)$ は $\iota(p)$ から決まる部分関数である ($e_i$ は第 $i$ 成分だけ 1 のベクトル):
+
+| 命令 $\iota(p)$ | $\delta(p, R)$ |
 |---|---|
-| $\mathrm{INC}(r_i, p')$ | $r_i \leftarrow r_i + 1$, $p \leftarrow p'$ |
-| $\mathrm{DEC}(r_i, p', p'')$ | $r_i > 0$ なら $r_i \leftarrow r_i - 1$, $p \leftarrow p'$。 $r_i = 0$ なら $p \leftarrow p''$ |
-| $\mathrm{HALT}$ | 計算停止 |
+| $\mathrm{INC}(r_i, p')$ | $(p', R + e_i)$ |
+| $\mathrm{DEC}(r_i, p', p'')$ | $r_i > 0$ なら $(p', R - e_i)$、 $r_i = 0$ なら $(p'', R)$ |
+| $\mathrm{HALT}$ | 定義しない (計算停止) |
 
 ミンスキーは $D = 2$ の program machine が既にチューリング完全であることを示した。
 すなわち、 任意の計算可能関数 $f: \mathbb{N} \to \mathbb{N}$ について、 適切な $M$ を構成すれば $r_0$ に入力を置いて実行することで他のレジスタに $f(r_0)$ を得ることができる。 $D \geq 3$ は表現の利便性のために用いるもので、 計算能力としては $D = 2$ と等価である。
@@ -110,6 +125,10 @@ P &=& \{0, 1, \ldots, N_p - 1\} &\quad \text{プログラム行集合}\\
 ## 3. パターン繰り返し迷路の定式化
 
 繰り返し迷路の定式化は [ペンテーション迷路](https://googology.fandom.com/ja/wiki/%E3%83%A6%E3%83%BC%E3%82%B6%E3%83%BC%E3%83%96%E3%83%AD%E3%82%B0:Koteitan/%E3%83%9A%E3%83%B3%E3%83%86%E3%83%BC%E3%82%B7%E3%83%A7%E3%83%B3%E8%BF%B7%E8%B7%AF) と同等のものを、本稿で扱う 2 次元・$n$ ターミナル版に簡略化して定義し直す。
+
+下記はパターン繰り返し迷路の模式図である。 
+
+![koteitan-repeated-maze.png](koteitan-repeated-maze.png)
 
 ### 3.1 ブロックとターミナル
 
@@ -695,6 +714,12 @@ L^* = \Omega(2 \uparrow\uparrow\uparrow p)
 `make_penta.py` の出力 `penta.hs` (initial_a=1) は約 5350 個の pc 値、 約 5350 個の catch-all ルール + 360 個の zb='x' + 273 個の zb='y' Haskell 行で構成され、 `hs2maze` を通すと normal/nx/ny/zero の 4 ブロック種それぞれ 1 万個前後のポートを持つ均一迷路となる。
 
 initial_a=1 は BFS で解ける (directed モードで経路長 約 390)。 initial_a $\geq 2$ は中間ゲーデル数がペンテーションオーダーで爆発するため、 BFS による解法は計算不能となる。
+
+---
+
+## 10. Lean による形式化
+
+§1.4 の貢献 6 で述べた 2 つの定理 (到達判定の決定不能性と、 最短経路長の最大値 $L(n)$ がどんな計算可能関数でも上から抑えられないこと) は、 Lean 4 + Mathlib で `sorry` なしに証明してある。 定理の正確な主張、 定義、 証明の流れ、 検証方法は GitHub の [lean/README-ja.md](https://github.com/koteitan/repeated-maze/blob/main/lean/README-ja.md) にまとめた。
 
 ---
 
