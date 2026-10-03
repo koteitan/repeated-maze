@@ -12,11 +12,15 @@
 
 繰り返し迷路の歴史は別稿「[繰り返し迷路の歴史](https://googology.fandom.com/ja/wiki/%E3%83%A6%E3%83%BC%E3%82%B6%E3%83%BC%E3%83%96%E3%83%AD%E3%82%B0:Koteitan/%E7%B9%B0%E3%82%8A%E8%BF%94%E3%81%97%E8%BF%B7%E8%B7%AF%E3%81%AE%E6%AD%B4%E5%8F%B2)」に詳述したが、同じ構造が繰り返される迷路の例は 1999 年頃から存在していた。
 
-- **フラクタル迷路** (Mark J. P. Wolf, 1999): 同じ迷路が再帰的に埋め込まれる構造。$N$ 端子フラクタル迷路の最浅解の深さは $\Theta(N^2)$ で抑えられる ([De Biasi, 2012](https://cstheory.stackexchange.com/questions/11024/decidability-of-fractal-maze))。
-- **[ピラミッド迷路](https://x.com/omeometo/status/1436627948677648384)** (omeometo, 2021): 同じパターンが二次元的に繰り返す迷路。フラクタル構造は持たないが、隣接ブロック間の遷移が許されるためチューリング完全になる可能性がある。
-- **[コラッツ迷路](https://googology.fandom.com/ja/wiki/%E3%83%A6%E3%83%BC%E3%82%B6%E3%83%BC%E3%83%96%E3%83%AD%E3%82%B0:Koteitan/%E3%82%B3%E3%83%A9%E3%83%83%E3%83%84%E8%BF%B7%E8%B7%AF)** (koteitan, 2021), **[ペンテーション迷路](https://googology.fandom.com/ja/wiki/%E3%83%A6%E3%83%BC%E3%82%B6%E3%83%BC%E3%83%96%E3%83%AD%E3%82%B0:Koteitan/%E3%83%9A%E3%83%B3%E3%83%86%E3%83%BC%E3%82%B7%E3%83%A7%E3%83%B3%E8%BF%B7%E8%B7%AF)** (koteitan, 2025): 二次元繰り返し迷路にレジスタマシンを埋め込んだ実例。後者はペンテーション ($2 \uparrow\uparrow\uparrow n$) 級の最短解長を持つ。
+- **フラクタル迷路** (Mark J. P. Wolf, 1999): 同じ迷路の縮小版が再帰的に埋め込まれる構造。
+- **端に異なる迷路がある繰り返し迷路**: 連続の迷路。[omeometo の日記の「2 次元的な奴」の章](https://omeometo.hatenablog.com/entry/2018/12/28/155549)にてコンセプトが紹介され、omeometo の twitter にて[ピラミッド迷路](https://x.com/omeometo/status/1436627948677648384)が実装例として紹介された。
 
-### 1.2 omeometo の示唆
+[^fractal]: フラクタル: ここで言う "フラクタル" は [1981 John E. Hutchinson, "Fractals and Self Similarity"](https://maths-people.anu.edu.au/~john/Assets/Research%20Papers/fractals_self-similarity.pdf) でのフラクタルの定義に従い、縮小倍率 $\text{Lip}F \lt 1$ を用いる。
+
+### 1.2 フラクタル迷路の複雑性
+$N$ 端子フラクタル迷路の最浅解の深さは $\Theta(N^2)$ で抑えられることが De Biasi によって証明されている。 ([De Biasi, 2012](https://cstheory.stackexchange.com/questions/11024/decidability-of-fractal-maze)。
+
+### 1.3 omeometo の示唆
 
 2018 年の omeometo 氏のブログ記事「[fractal mazeとか](https://omeometo.hatenablog.com/entry/2018/12/28/155549)」では、二次元繰り返し迷路に[ミンスキーのレジスタマシン](https://ja.wikipedia.org/wiki/%E3%82%AB%E3%82%A6%E3%83%B3%E3%82%BF%E3%83%9E%E3%82%B7%E3%83%B3)を埋め込むことで、ゴール到達判定がチューリングマシンにて決定不能になるという観察と略証が与えられた。
 
@@ -24,14 +28,21 @@
 >
 > — omeometo, 2018
 
+omeometo 氏は、 ブロック $A$ が $(x, y)$ ($x > 0, y > 0$) の位置に、 ブロック $B$ が $(0, y)$ ($y > 0$) の位置に、 ブロック $C$ が $(x, 0)$ ($x > 0$) の位置に反復的に並んでおり、 ブロック $D$ が $(0, 0)$ にあり、 それぞれのブロックの中に状態に対応したターミナルを繋ぐ有向グラフのポートがある図を描いている。
+
 さらに同記事では以下が問いかけられた:
 
 > 決定不能なのだとしたら、解の最小手数が問題の「見た目」に対して「考えられないほど」膨れ上がるような問題が存在する、ということで、パズル的にはオイシイわけです。誰かなんか面白いの作りませんかね。
 >
 > — omeometo, 2018
 
-[ペンテーション迷路](https://googology.fandom.com/ja/wiki/%E3%83%A6%E3%83%BC%E3%82%B6%E3%83%BC%E3%83%96%E3%83%AD%E3%82%B0:Koteitan/%E3%83%9A%E3%83%B3%E3%83%86%E3%83%BC%E3%82%B7%E3%83%A7%E3%83%B3%E8%BF%B7%E8%B7%AF) はこの問いへの一つの回答だったが、コラッツ迷路に近い "周期構造に計算過程を埋め込む" 設計のため、ブロック種類が多く、配置も複雑だった。
+[ペンテーション迷路](https://googology.fandom.com/ja/wiki/%E3%83%A6%E3%83%BC%E3%82%B6%E3%83%BC%E3%83%96%E3%83%AD%E3%82%B0:Koteitan/%E3%83%9A%E3%83%B3%E3%83%86%E3%83%BC%E3%82%B7%E3%83%A7%E3%83%B3%E8%BF%B7%E8%B7%AF) はこの問いへの一つの回答だったが、コラッツ迷路に近い "周期構造に計算過程を埋め込む" 設計のため、ブロック種類が多く、配置も複雑だった。 omeometo 氏の繰り返し迷路とコラッツ迷路型の違いを以下に整理する:
 
+| 観点 | omeometo 型 | コラッツ迷路型 |
+|---|---|---|
+| ブロック種類数 | 4 種 ($A$ / $B$ / $C$ / $D$) | 23 種 |
+| ブロックの配置 | 左端に $B$、 下端に $C$、 原点に $D$、 残りは $A$ で単純 | ブロック種別によって異なる直線上に、 異なる間隔で特定のブロック種別のブロックが配置されている |
+| 実装内容とアーキテクチャの分離 | ブロック種別とその配置はアーキテクチャによって不変。ターミナル配置・ポート配置は実装内容依存 | ターミナル配置・ポート配置・ブロック種別・ブロック配置がすべて実装内容既存 |
 ### 1.3 本研究の貢献
 
 本研究の貢献は次の五点である。
@@ -648,12 +659,12 @@ initial_a=1 は BFS で解ける (directed モードで経路長 約 390)。 ini
 
 ## 参考文献
 
-- M. L. Minsky, *Computation: Finite and Infinite Machines*, Prentice-Hall, 1967.
-- M. J. P. Wolf, "FRACTAL MAZES", *Extropy* #17, 1999, pp. 67-68.
-- omeometo, "[fractal mazeとか](https://omeometo.hatenablog.com/entry/2018/12/28/155549)", omeometo の日記, 2018.
-- omeometo, "[ピラミッド迷路](https://x.com/omeometo/status/1436627948677648384)", Twitter, 2021.
-- M. De Biasi, "[Decidability of fractal maze](https://cstheory.stackexchange.com/questions/11024/decidability-of-fractal-maze/11034)", StackExchange, 2012.
-- C. Y. Lee, "An Algorithm for Path Connections and Its Applications", *IRE Transactions on Electronic Computers*, vol. EC-10, no. 3, 1961, pp. 346-365.
-- koteitan, "[繰り返し迷路の歴史](https://googology.fandom.com/ja/wiki/%E3%83%A6%E3%83%BC%E3%82%B6%E3%83%BC%E3%83%96%E3%83%AD%E3%82%B0:Koteitan/%E7%B9%B0%E3%82%8A%E8%BF%94%E3%81%97%E8%BF%B7%E8%B7%AF%E3%81%AE%E6%AD%B4%E5%8F%B2)", 巨大数研究 Wiki ブログ.
-- koteitan, "[ペンテーション迷路](https://googology.fandom.com/ja/wiki/%E3%83%A6%E3%83%BC%E3%82%B6%E3%83%BC%E3%83%96%E3%83%AD%E3%82%B0:Koteitan/%E3%83%9A%E3%83%B3%E3%83%86%E3%83%BC%E3%82%B7%E3%83%A7%E3%83%B3%E8%BF%B7%E8%B7%AF)", 巨大数研究 Wiki ブログ, 2025.
-- koteitan, [repeated-maze (GitHub Pages)](https://koteitan.github.io/repeated-maze/), 2026.
+- 1961: C. Y. Lee, "An Algorithm for Path Connections and Its Applications", *IRE Transactions on Electronic Computers*, vol. EC-10, no. 3, 1961, pp. 346-365.
+- 1967: M. L. Minsky, *Computation: Finite and Infinite Machines*, Prentice-Hall, 1967.
+- 1981: John E. Hutchinson, ["Fractals and Self Similarity"](https://maths-people.anu.edu.au/~john/Assets/Research%20Papers/fractals_self-similarity.pdf), Indiana University Mathematics Journal, Vol. 30, No. 5 (1981), pp. 713–747.
+- 1999: M. J. P. Wolf, "FRACTAL MAZES", [Extropy](https://www.extropy.org/) #17, 1999, pp. 67-68.
+- 2018: omeometo, "[fractal mazeとか](https://omeometo.hatenablog.com/entry/2018/12/28/155549)", omeometo の日記, 2018.
+- 2021: omeometo, "[ピラミッド迷路](https://x.com/omeometo/status/1436627948677648384)", Twitter, 2021.
+- 2025: koteitan, "[繰り返し迷路の歴史](https://googology.fandom.com/ja/wiki/%E3%83%A6%E3%83%BC%E3%82%B6%E3%83%BC%E3%83%96%E3%83%AD%E3%82%B0:Koteitan/%E7%B9%B0%E3%82%8A%E8%BF%94%E3%81%97%E8%BF%B7%E8%B7%AF%E3%81%AE%E6%AD%B4%E5%8F%B2)", 巨大数研究 Wiki ブログ.
+- 2025: koteitan, "[ペンテーション迷路](https://googology.fandom.com/ja/wiki/%E3%83%A6%E3%83%BC%E3%82%B6%E3%83%BC%E3%83%96%E3%83%AD%E3%82%B0:Koteitan/%E3%83%9A%E3%83%B3%E3%83%86%E3%83%BC%E3%82%B7%E3%83%A7%E3%83%B3%E8%BF%B7%E8%B7%AF)", 巨大数研究 Wiki ブログ, 2025.
+- 2026: koteitan, [repeated-maze (GitHub Pages)](https://koteitan.github.io/repeated-maze/), 2026.
