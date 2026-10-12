@@ -106,6 +106,8 @@ $B^nA^\omega$ ($n = 0, 1, 2, \ldots$) が $\omega$ 個、 その後に $B^\omega
 これは [Infinite Fractal Mazes](https://freethoughtblogs.com/atrivialknot/2023/10/21/infinite-fractal-mazes/) のFigure 2: Simple Nested Maze に対応する。 Siggy は、 2 つ目のホップは無限個の無限ホップを必要とする、 と書いている。
 
 ### ω2+1 個の無限ホップをもつ無限フラクタル迷路の例
+[Infinite Fractal Mazes](https://freethoughtblogs.com/atrivialknot/2023/10/21/infinite-fractal-mazes/) では、**The Cantor Hop rule** を導入して $2^{\aleph_0}$ 個の無限ホップをもつ例を作っている。しかし、$\omega+1$ と $2^{\aleph_0}$ の間の順序数型の例は作られていないので、作ってみる。
+
 ![Koteitan-inffracmaze-04-w2-hop.svg](Koteitan-inffracmaze-04-w2-hop.svg)
 
 辺は $1-A1$, $2-A2$, $2-B1$, $3-B3$, $3-C3$, $4-C4$, $4-D3$, $5-D5$ の 8 本である。 $\omega+1$ 個の例の仕掛けを 2 つ直列に並べたものである。
