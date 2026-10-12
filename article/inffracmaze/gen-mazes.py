@@ -10,14 +10,14 @@ BG, FG, RED, GREEN = "#ffffff", "#222222", "#dd2222", "#1a9e3a"
 # subs (letter -> (x frac, y frac, scale)), edges (junction, sub, sub junction),
 # answer rules (address regex -> edges on the solution), depth, label depth.
 MAZES = {
-    "koteitan-inffracmaze-01-1-hop": dict(
+    "Koteitan-inffracmaze-01-1-hop": dict(
         start_goal=("1", "2"),
         ports={1: 0.3, 2: 0.7},
         subs={"A": (0.3, 0.25, 0.5)},
         edges=[(1, "A", 1), (2, "A", 2)],
         answer=[(r"A*", {(1, "A", 1), (2, "A", 2)})],
         depth=3, label_depth=2),
-    "koteitan-inffracmaze-02-2-hop": dict(
+    "Koteitan-inffracmaze-02-2-hop": dict(
         start_goal=("1", "3"),
         ports={1: 0.15, 2: 0.5, 3: 0.85},
         subs={"A": (0.25, 0.06, 0.4), "B": (0.55, 0.5, 0.4)},
@@ -25,7 +25,7 @@ MAZES = {
         answer=[(r"A*", {(1, "A", 1), (2, "A", 2)}),
                 (r"B*", {(2, "B", 2), (3, "B", 3)})],
         depth=3, label_depth=2),
-    "koteitan-inffracmaze-03-w-hop": dict(
+    "Koteitan-inffracmaze-03-w-hop": dict(
         start_goal=("1", "3"),
         ports={1: 0.2, 2: 0.5, 3: 0.85},
         subs={"A": (0.25, 0.06, 0.4), "B": (0.55, 0.5, 0.4)},
@@ -33,7 +33,7 @@ MAZES = {
         answer=[(r"B*A*", {(1, "A", 1), (2, "A", 2)}),
                 (r"B*", {(2, "B", 1), (3, "B", 3)})],
         depth=3, label_depth=2),
-    "koteitan-inffracmaze-04-w2-hop": dict(
+    "Koteitan-inffracmaze-04-w2-hop": dict(
         start_goal=("1", "5"),
         ports={1: 0.06, 2: 0.26, 3: 0.50, 4: 0.70, 5: 0.93},
         subs={"A": (0.22, 0.03, 0.2), "B": (0.62, 0.27, 0.2),
@@ -45,7 +45,7 @@ MAZES = {
                 (r"D*C*", {(3, "C", 3), (4, "C", 4)}),
                 (r"D*", {(4, "D", 3), (5, "D", 5)})],
         depth=2, label_depth=1),
-    "koteitan-inffracmaze-05-wt2-hop": dict(
+    "Koteitan-inffracmaze-05-wt2-hop": dict(
         start_goal=("1", "4"),
         ports={1: 0.10, 2: 0.35, 3: 0.62, 4: 0.90},
         subs={"A": (0.20, 0.02, 0.28), "B": (0.45, 0.34, 0.28), "C": (0.70, 0.66, 0.28)},
@@ -54,7 +54,7 @@ MAZES = {
                 (r"C*B*", {(2, "B", 1), (3, "B", 3)}),
                 (r"C*", {(3, "C", 1), (4, "C", 4)})],
         depth=2, label_depth=1),
-    "koteitan-inffracmaze-06-wt3-hop": dict(
+    "Koteitan-inffracmaze-06-wt3-hop": dict(
         start_goal=("1", "5"),
         ports={1: 0.08, 2: 0.30, 3: 0.52, 4: 0.74, 5: 0.94},
         subs={"A": (0.16, 0.02, 0.2), "B": (0.36, 0.26, 0.2),
