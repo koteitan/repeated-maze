@@ -1,8 +1,8 @@
 == Overview ==
 
 A repeated maze is a maze in which identical block patterns are tiled on a grid; it can have a complex path structure in which the solution unexpectedly detours to a far-away place and comes back before reaching the goal.
-In this paper, we describe Minsky's register machine (program machine) as a Haskell-style state-transition function and present a method to mechanically convert it into a '''two-dimensional repeated maze''' (either a directed or an undirected graph).
-As applications we construct three families of repeated mazes — "counter pump", "Minsky doubling machine", and "pentation maze" — and show by explicit examples that the Minsky-machine embedding makes the shortest path length blow up to '''fast-growing-function order''' (of the \(2 \uparrow\uparrow\uparrow n\) scale) with respect to the block size.
+In this paper, I describe Minsky's register machine (program machine) as a Haskell-style state-transition function and present a method to mechanically convert it into a '''two-dimensional repeated maze''' (either a directed or an undirected graph).
+As applications I construct three families of repeated mazes — "counter pump", "Minsky doubling machine", and "pentation maze" — and show by explicit examples that the Minsky-machine embedding makes the shortest path length blow up to '''fast-growing-function order''' (of the \(2 \uparrow\uparrow\uparrow n\) scale) with respect to the block size.
 
 == 1. Introduction ==
 === 1.1 Previous work on repeated mazes ===
@@ -57,7 +57,7 @@ Below is a partial figure of the pentation maze.
 
 There are 23 block types, and their placement is not simple but follows a complex regular rule.
 
-We summarise the differences between omeometo's repeated maze and the Collatz-maze style below:
+I summarise the differences between omeometo's repeated maze and the Collatz-maze style below:
 
 {| class="wikitable"
 ! Aspect !! omeometo style !! Collatz-maze style
@@ -72,17 +72,17 @@ We summarise the differences between omeometo's repeated maze and the Collatz-ma
 === 1.4 Contributions of this work ===
 The contributions of this work are the following six points.
 
-# '''General-purpose compiler hs2maze''': we implemented a Python tool that, given an arbitrary 2-register Minsky machine written in Haskell-like syntax, mechanically generates the corresponding two-dimensional repeated maze (undirected graph).
-# '''Gödel-encoding compiler nd-to-2d from n-register to 2-register''': we implemented a compiler that, by Gödel encoding (\(x = \prod p_i^{r_i}\)), converts the Haskell source of an arbitrary n-register Minsky machine into a 2-register version. This makes it possible to turn Minsky machines with three or more registers (e.g., counter-pump-3) into mazes through hs2maze.
-# '''Arbitrary \(D\)-register Minsky machine → repeated maze of 4 block types''': combining contributions 1 and 2, we found that the computation represented by an arbitrary \(D\)-register Minsky machine can be expressed as '''a repeated tiling of 4 block types: normal / nx / ny / zero'''.
-# '''Construction of concrete maze families''': using the compilers above, we constructed four maze families of different orders.
+# '''General-purpose compiler hs2maze''': I implemented a Python tool that, given an arbitrary 2-register Minsky machine written in Haskell-like syntax, mechanically generates the corresponding two-dimensional repeated maze (undirected graph).
+# '''Gödel-encoding compiler nd-to-2d from n-register to 2-register''': I implemented a compiler that, by Gödel encoding (\(x = \prod p_i^{r_i}\)), converts the Haskell source of an arbitrary n-register Minsky machine into a 2-register version. This makes it possible to turn Minsky machines with three or more registers (e.g., counter-pump-3) into mazes through hs2maze.
+# '''Arbitrary \(D\)-register Minsky machine → repeated maze of 4 block types''': combining contributions 1 and 2, I found that the computation represented by an arbitrary \(D\)-register Minsky machine can be expressed as '''a repeated tiling of 4 block types: normal / nx / ny / zero'''.
+# '''Construction of concrete maze families''': using the compilers above, I constructed four maze families of different orders.
 #* '''4-1. Counter pump (cp2)''': a 2-register maze with path length \(\Theta(n^2)\) for iteration count \(n\).
 #* '''4-2. Counter pump 3 (cp3)''': a 3-register version compiled down to 2 registers by nd-to-2d, giving a maze whose path length is of a higher polynomial order than cp2.
 #* '''4-3. Minsky doubling machine (md)''': an exponential-order maze with path length \(\Theta(2^k)\) for cycle count \(k\).
 #* '''4-4. Pentation maze (penta)''': a fast-growing-function-order maze with path length \(\Omega(3^{2 \uparrow\uparrow\uparrow n})\) for input \(n\). What the previous version realised with 23 block types is rebuilt here with '''uniform 4 block types'''.
-# '''Repeated-maze viewer and solver''': we built and published a visualiser that draws and lets one explore each of the above mazes in a web browser, together with a BFS-based solver that measures path lengths ([https://koteitan.github.io/repeated-maze/ repeated-maze]).
+# '''Repeated-maze viewer and solver''': I built and published a visualiser that draws and lets one explore each of the above mazes in a web browser, together with a BFS-based solver that measures path lengths ([https://koteitan.github.io/repeated-maze/ repeated-maze]).
 # '''Formal proof in Lean''': for repeated mazes of 4 block types, the following two statements have been proved in Lean 4 + Mathlib with no sorry ([https://github.com/koteitan/repeated-maze/blob/main/lean/README.md lean/README.md]). The axioms used are only Lean's standard axioms.
-#* '''6-1. Undecidability of the reachability decision''': there is no algorithm that, given a maze as input, decides whether one can reach goal from start. This holds both in the directed case (ports are one-way) and in the undirected case (both directions allowed). This formalises in our maze setting the undecidability sketched by omeometo in §1.3.
+#* '''6-1. Undecidability of the reachability decision''': there is no algorithm that, given a maze as input, decides whether one can reach goal from start. This holds both in the directed case (ports are one-way) and in the undirected case (both directions allowed). This formalises in my maze setting the undecidability sketched by omeometo in §1.3.
 #* '''6-2. Growth of the shortest path length (main theorem)''': if \(L(n)\) denotes the maximum shortest-path length over all solvable mazes with at most \(n\) ports, then for every computable function \(f\) there exists \(n\) with \(L(n) > f(n)\). That is, \(L(n)\) cannot be bounded above by any computable function. This formally substantiates omeometo's question in §1.3 — the existence of a problem whose smallest solution length blows up unimaginably with respect to how the problem looks.
 
 The flow of the transformations in contributions 1-3 is shown below:
@@ -93,7 +93,7 @@ The flow of the transformations in contributions 1-3 is shown below:
 
 ----
 == 2. Formulation of the Minsky register machine ==
-Marvin L. Minsky defined the '''program machine''' (hereafter simply "Minsky machine" in this paper) in [Minsky 1967, Ch. 11]. In this work we use the general \(D\)-register version (\(D \geq 2\)). In the phases before the Gödel-encoding compiler nd-to-2d.py described in §5 we also handle \(D \geq 3\), and compress to \(D = 2\) later.
+Marvin L. Minsky defined the '''program machine''' (hereafter simply "Minsky machine" in this paper) in [Minsky 1967, Ch. 11]. In this work I use the general \(D\)-register version (\(D \geq 2\)). In the phases before the Gödel-encoding compiler nd-to-2d.py described in §5 I also handle \(D \geq 3\), and compress to \(D = 2\) later.
 
 A \(D\)-register Minsky machine \(M\) is given by the following tuple:
 
@@ -127,11 +127,11 @@ The instruction table \(\iota\) assigns to each line \(p \in P\) one of the foll
 Minsky showed that the program machine is already Turing complete at \(D = 2\).
 That is, for any computable function \(f: \mathbb{N} \to \mathbb{N}\), one can construct a suitable \(M\) so that placing the input in \(r_0\) and running it leaves \(f(r_0)\) in another register. \(D \geq 3\) is used for notational convenience; its computational power is equivalent to \(D = 2\).
 
-In this paper we additionally allow the Minsky machine's '''program counter''' \(p\) to take values in an arbitrary finite namespace of "instruction labels" (internally these can be identified with lines named by natural numbers).
+In this paper I additionally allow the Minsky machine's '''program counter''' \(p\) to take values in an arbitrary finite namespace of "instruction labels" (internally these can be identified with lines named by natural numbers).
 
 ----
 == 3. Formulation of repeated mazes ==
-We rework the formulation of repeated mazes used in [[User blog:Koteitan/Pentation Maze|Pentation Maze]], simplifying it to the two-dimensional, \(n\)-terminal setting of this paper.
+I rework the formulation of repeated mazes used in [[User blog:Koteitan/Pentation Maze|Pentation Maze]], simplifying it to the two-dimensional, \(n\)-terminal setting of this paper.
 
 Below is a schematic of a repeated maze.
 
@@ -149,7 +149,7 @@ A repeated maze is built by placing '''blocks''' at grid points \((x, y) \in \ma
 * '''North edge (N)''' has \(N_0, \ldots, N_{T_N - 1}\) (\(T_N\) of them)
 * '''Center (C) terminals''': logical connection points placed inside the block, \(C_0, C_1, \ldots, C_{T_C - 1}\) (\(T_C\) of them). They are used as internal connection hubs for port decomposition (§6).
 
-The counts \(T_W, T_E, T_N, T_S, T_C\) on each edge are determined separately for each block type (normal / nx / ny / zero, §3.3), and are set automatically from the port set emitted by hs2maze (§6 / §7). We write \(T \;=\; T_W + T_E + T_N + T_S + T_C\) for the total number of terminals.
+The counts \(T_W, T_E, T_N, T_S, T_C\) on each edge are determined separately for each block type (normal / nx / ny / zero, §3.3), and are set automatically from the port set emitted by hs2maze (§6 / §7). I write \(T \;=\; T_W + T_E + T_N + T_S + T_C\) for the total number of terminals.
 
 Edge terminals on adjacent blocks are shared as the same point. That is,
 
@@ -166,7 +166,7 @@ Ports can be defined either as directed or as undirected edges.
 * '''Undirected port''' \(A - B\): two-way passage \(A \leftrightarrow B\).
 
 === 3.3 Block types ===
-We use 4 block types depending on the values of the grid point \((x, y)\):
+I use 4 block types depending on the values of the grid point \((x, y)\):
 
 {| class="wikitable"
 ! Type !! Placement !! Role
@@ -192,7 +192,7 @@ The minimum solution length (= number of ports traversed) is called the '''short
 
 ----
 == 4. Haskell representation of a Minsky machine ==
-We represent a \(D\)-register Minsky machine \(M\) as a Haskell-style function (a recursive function with pattern matching). The registers \((r_0, r_1, \ldots, r_{D-1})\) are used as-is, and the program counter is written \(\mathit{pc}\). The function argument is the \((D + 1)\)-tuple \((r_0, r_1, \ldots, r_{D-1}, \mathit{pc})\).
+I represent a \(D\)-register Minsky machine \(M\) as a Haskell-style function (a recursive function with pattern matching). The registers \((r_0, r_1, \ldots, r_{D-1})\) are used as-is, and the program counter is written \(\mathit{pc}\). The function argument is the \((D + 1)\)-tuple \((r_0, r_1, \ldots, r_{D-1}, \mathit{pc})\).
 
 As a concrete example, the function signature for \(D = 3\) is as follows:
 
@@ -246,10 +246,10 @@ For a solution to the maze to exist, at the moment the Minsky machine reaches \(
 The number of registers that a Minsky machine actually needs can be 3 or more for some problems (e.g., when several counters must be managed independently).
 On the other hand, the repeated maze of §3 has a structure in which the registers \((r_0, r_1)\) are directly identified with the two-dimensional grid \((x, y)\), so without further processing it can only handle 2 registers.
 
-The tool tools/nd-to-2d/nd-to-2d.py mechanically compiles the Haskell source of an arbitrary '''n-register Minsky machine''' into a '''2-register + Gödel-numbered''' Haskell version. This lets us turn any n-register Minsky machine into a maze through the downstream hs2maze (§6 / §7).
+The tool tools/nd-to-2d/nd-to-2d.py mechanically compiles the Haskell source of an arbitrary '''n-register Minsky machine''' into a '''2-register + Gödel-numbered''' Haskell version. This lets me turn any n-register Minsky machine into a maze through the downstream hs2maze (§6 / §7).
 
 === 5.1 Formulation of the Gödel encoding ===
-We compress \(n\) registers \((r_0, r_1, \ldots, r_{n-1})\) into a single natural number \(x\) as the product of powers of distinct primes \(p_0 = 2, p_1 = 3, p_2 = 5, \ldots\):
+I compress \(n\) registers \((r_0, r_1, \ldots, r_{n-1})\) into a single natural number \(x\) as the product of powers of distinct primes \(p_0 = 2, p_1 = 3, p_2 = 5, \ldots\):
 
 
 \begin{eqnarray*}
@@ -261,7 +261,7 @@ By the uniqueness of prime factorisation, the map \((r_0, \ldots, r_{n-1}) \left
 
 In nd-to-2d.py, the remaining one register \(y\) is reserved as a program counter or as a scratch region, giving a \((x, y, \mathit{pc})\) 2-register + PC configuration overall.
 
-Relation to the Haskell representation of §4: in the Gödel-encoded 2-register Haskell, we write the arguments by convention as \((x, y, \mathit{pc})\) (\(x\) is the Gödel-encoded value of the original \(n\) registers, and \(y\) is an auxiliary register). The correspondence with §3 (the maze grid coordinates) is that the post-Gödel \((x, y)\) corresponds directly to the block grid point \((x, y)\).
+Relation to the Haskell representation of §4: in the Gödel-encoded 2-register Haskell, I write the arguments by convention as \((x, y, \mathit{pc})\) (\(x\) is the Gödel-encoded value of the original \(n\) registers, and \(y\) is an auxiliary register). The correspondence with §3 (the maze grid coordinates) is that the post-Gödel \((x, y)\) corresponds directly to the block grid point \((x, y)\).
 
 === 5.2 Instruction decomposition ===
 Each basic \(n\)-register instruction is expanded into a chain of basic 2-register instructions:
@@ -278,7 +278,7 @@ Each basic \(n\)-register instruction is expanded into a chain of basic 2-regist
 | \(\mathrm{HALT}\) || 2-register HALT, directly
 |}
 
-Below we implement each as a subroutine that temporarily uses the auxiliary register \(y\) (\(y = 0\) is maintained before and after each subroutine). The intermediate PC values are '''freshly allocated by the generator''' so that they do not collide with the original PC values.
+Below I implement each as a subroutine that temporarily uses the auxiliary register \(y\) (\(y = 0\) is maintained before and after each subroutine). The intermediate PC values are '''freshly allocated by the generator''' so that they do not collide with the original PC values.
 
 ==== 5.2.1 x ×= p_i ====
 Multiply \(x\) by the prime \(p_i\). A 2-phase construction:
@@ -302,7 +302,7 @@ godel (x, y, incx       ) = godel (x+1, y,   drain   )  -- INC x → drain
 </syntaxhighlight>
 
 ==== 5.2.2 x /= p_i ====
-Divide \(x\) by \(p_i\). We assume \(p_i \mid x\) (= \(x\) is a multiple of \(p_i\)).
+Divide \(x\) by \(p_i\). I assume \(p_i \mid x\) (= \(x\) is a multiple of \(p_i\)).
 
 * '''Phase A''' (entry, dec_*, incy): a loop that DECs \(x\) by \(p_i\) at a time and INCs \(y\) by 1 for every completed round. If \(x = 0\) is reached in the middle of a round (= \(x\) is not divisible by \(p_i\)), the control jumps to the trap PC. At the end, \(x = 0\), \(y = x_\mathrm{init} / p_i\).
 * '''Phase B''' (drain, incx): the same 1:1 drain structure as in §5.2.1. At the end, \(x = x_\mathrm{init} / p_i\), \(y = 0\).
@@ -327,8 +327,8 @@ godel (x, y, incx       ) = godel (x+1, y,   drain   )
 ==== 5.2.3 Test x mod p_i = 0 ====
 A '''side-effect-free''' subroutine that tests whether \(x\) is divisible by \(p_i\) (the value of \(x\) is unchanged before and after).
 
-* '''Phase A''' (entry, dec_*, incy): a DEC-by-\(p_i\) + INC-y loop, as in §5.2.2. However, when \(x = 0\) is reached in the middle, we do not trap; instead we select a branch target that records '''at which position \(k \in \{0, 1, \ldots, p_i - 1\}\) we hit \(x = 0\)'''. \(k = 0\) means divisible; \(k \geq 1\) means not divisible.
-* '''Phase B''' (restore_k): a dedicated restore routine for each \(k\). It drains \(y\) back into \(x\), while compensating for the \(k\) extra DECs of \(x\) performed in advance in the final round. At the end, \(x\) is back to \(x_\mathrm{init}\); if \(k = 0\) we branch to pass (divisible); if \(k \geq 1\) we branch to fail (not divisible).
+* '''Phase A''' (entry, dec_*, incy): a DEC-by-\(p_i\) + INC-y loop, as in §5.2.2. However, when \(x = 0\) is reached in the middle, I do not trap; instead I select a branch target that records '''at which position \(k \in \{0, 1, \ldots, p_i - 1\}\) I hit \(x = 0\)'''. \(k = 0\) means divisible; \(k \geq 1\) means not divisible.
+* '''Phase B''' (restore_k): a dedicated restore routine for each \(k\). It drains \(y\) back into \(x\), while compensating for the \(k\) extra DECs of \(x\) performed in advance in the final round. At the end, \(x\) is back to \(x_\mathrm{init}\); if \(k = 0\) I branch to pass (divisible); if \(k \geq 1\) I branch to fail (not divisible).
 
 <syntaxhighlight lang="haskell">
 -- Phase A: x → 0, identify position k where x hit 0 via the nx branch targets
@@ -382,12 +382,12 @@ When tools/hs2maze/hs2maze.py is called with the --directed option, it converts 
 
 === 6.1 Port decomposition ===
 ==== 6.1.1 Idea: C terminals represent PC lines ====
-We associate the C terminal \(C_p\) inside a block with '''the position of line \(p\) of the Haskell program (= the state with PC = \(p\))'''. The \(C_p\) of block \((x, y)\) represents the state "currently \(r_0 = x - 1\), \(r_1 = y - 1\), and PC = \(p\)" (after Gödel encoding, \((x_\mathrm{reg}, y_\mathrm{reg}) = (x - 1, y - 1)\); for details see the bridge convention in hs2maze.py).
+I associate the C terminal \(C_p\) inside a block with '''the position of line \(p\) of the Haskell program (= the state with PC = \(p\))'''. The \(C_p\) of block \((x, y)\) represents the state "currently \(r_0 = x - 1\), \(r_1 = y - 1\), and PC = \(p\)" (after Gödel encoding, \((x_\mathrm{reg}, y_\mathrm{reg}) = (x - 1, y - 1)\); for details see the bridge convention in hs2maze.py).
 
 Then one Haskell line \((x, y, p) \to (x', y', p')\) (displacement \((dx, dy) = (x' - x, y' - y)\)) conceptually corresponds to '''a single directed edge from \(C_p\) of block \((x_b, y_b)\) to \(C_{p'}\) of block \((x_b + dx, y_b + dy)\)'''.
 
 ==== 6.1.2 Decomposition: split into two ports ====
-However, this "conceptual edge" directly connects adjacent blocks, so it cannot be expressed as a port of §3.2 (= an edge between terminals inside one block). We therefore '''decompose it into two ports via the shared edge terminal between the two blocks''':
+However, this "conceptual edge" directly connects adjacent blocks, so it cannot be expressed as a port of §3.2 (= an edge between terminals inside one block). I therefore '''decompose it into two ports via the shared edge terminal between the two blocks''':
 
 Below is a schematic of the decomposition for the case \((dx, dy) = (1, 0)\). (a) is the conceptual edge, and (b) is the two ports after decomposition.
 
@@ -402,7 +402,7 @@ Below is a schematic of the decomposition for the case \((dx, dy) = (1, 0)\). (a
   W_{p'} \;@\; (x_b+1, y_b) &\to& C_{p'} \;@\; (x_b+1, y_b) \quad\text{(destination-side port)}
   \end{eqnarray*}
 
-  We use the '''destination PC \(p'\)''' as the edge-terminal idx (meaning "edge for going to PC line \(p'\)").
+  I use the '''destination PC \(p'\)''' as the edge-terminal idx (meaning "edge for going to PC line \(p'\)").
 
 * Case \((dx, dy) = (-1, 0)\) (decrement \(x\) by 1): relay through west edge / east edge:
 
@@ -448,7 +448,7 @@ When tools/hs2maze/hs2maze.py is called with no options (the default), it starts
 Each port \(A \to B\) in the directed port list of §6 is simply rewritten as the undirected port \(A - B\). By the definition in §3.2, an undirected port allows passage in both \(A \to B\) and \(B \to A\), so this is a "bidirectionalisation" of the original directed maze.
 
 === 7.2 simplify and daisy chain ===
-The undirected port list from §7.1 contains many C terminals (all with idx \(\geq 2\), i.e., other than \(C_0\) / \(C_1\)). We reduce them in a 2-stage pipeline '''simplify (§7.2.1) → daisy chain (§7.2.2)''' downstream.
+The undirected port list from §7.1 contains many C terminals (all with idx \(\geq 2\), i.e., other than \(C_0\) / \(C_1\)). I reduce them in a 2-stage pipeline '''simplify (§7.2.1) → daisy chain (§7.2.2)''' downstream.
 
 ==== 7.2.1 simplify ====
 For the undirected port set \(P\) of each block type, treat a C terminal \(t\) with idx \(\geq 2\) as a vertex, and let the set of ports incident to \(t\) be
@@ -459,7 +459,7 @@ I(t) &=& \{ (a - b) \in P \mid a = t \;\lor\; b = t \}
 \end{eqnarray*}
 
 
-(the undirected port \(a - b\) of §3.2 does not distinguish the order of \(a\) and \(b\)). We call \(|I(t)| = d\) the '''degree''' of \(t\). We reduce C terminals by the following fixed-point iteration:
+(the undirected port \(a - b\) of §3.2 does not distinguish the order of \(a\) and \(b\)). I call \(|I(t)| = d\) the '''degree''' of \(t\). I reduce C terminals by the following fixed-point iteration:
 
 
 \begin{eqnarray*}
@@ -503,7 +503,7 @@ P \;\leftarrow\; \big( P \setminus I(t_C) \big) \;\cup\; \{ u_i - u_{i+1} \mid 0
 \end{eqnarray*}
 
 
-This makes the C terminal \(t_C\) eventually vanish from the output port set, and the edge terminals that were originally aggregated at \(t_C\) are connected by neighbouring links along the block perimeter. We apply this replacement to every C terminal (including \(C_0\) / \(C_1\)), so that no C terminal appears at all in the output maze file.
+This makes the C terminal \(t_C\) eventually vanish from the output port set, and the edge terminals that were originally aggregated at \(t_C\) are connected by neighbouring links along the block perimeter. I apply this replacement to every C terminal (including \(C_0\) / \(C_1\)), so that no C terminal appears at all in the output maze file.
 
 Below is a schematic of daisy chain. On the left is the pre-replacement star (centred on \(t_C\)); on the right is the post-replacement chain in CCW order.
 
@@ -539,7 +539,7 @@ simplify and daisy chain are local transformations within one block and create n
 
 ----
 == 8. Mazes in which the shortest path length grows at the order of a large function with respect to block size ==
-By §7.3, the start→goal shortest path length \(L^*\) of a maze produced by hs2maze matches the shortest path length of the directed maze of §6 up to a constant factor. In the directed maze of §6, one step of 2-register Haskell becomes one or two ports, so \(L^* = \Theta(T_\mathrm{step})\) relative to the computation step count \(T_\mathrm{step}\) of the 2-register Haskell. Therefore, if we construct a Minsky machine whose step count grows at fast-growing-function order with respect to the block size, the shortest path length too becomes a large number of the same order.
+By §7.3, the start→goal shortest path length \(L^*\) of a maze produced by hs2maze matches the shortest path length of the directed maze of §6 up to a constant factor. In the directed maze of §6, one step of 2-register Haskell becomes one or two ports, so \(L^* = \Theta(T_\mathrm{step})\) relative to the computation step count \(T_\mathrm{step}\) of the 2-register Haskell. Therefore, if I construct a Minsky machine whose step count grows at fast-growing-function order with respect to the block size, the shortest path length too becomes a large number of the same order.
 
 === 8.1 Construction ===
 Let \(f\) be a fast-growing function of type \(\mathbb{N} \to \mathbb{N}\) that can be described by a Minsky machine with a finite number of program lines, and let \(M_f\) be a Minsky machine that computes it. Suppose \(M_f\) uses \((r_0, r_1, \mathit{pc})\) as its state and reaches state \((0, f(n), n+k)\) from state \((n, 0, n+1)\) using \(k\) PCs (i.e., it is run with input \(n\) placed in \(r_0\), and leaves the output \(f(n)\) in \(r_1\)).
@@ -570,7 +570,7 @@ This can be realised by the single Haskell line machine (0, y, 1) = machine (0, 
 
 ----
 == 9. Construction of concrete maze families ==
-Based on the construction of §8, we build four maze families of different orders.
+Based on the construction of §8, I build four maze families of different orders.
 
 === 9.1 Counter pump, 2-register version (Θ(n^2)) ===
 The counter pump is a design that uses the "same pattern tiled on a grid" property unique to repeated mazes to accumulate and release the computation of a Minsky machine asymmetrically "like a pump", so as to achieve a path length of polynomial order.
@@ -626,7 +626,7 @@ Repeat this until x=0.
 This results in \(n \cdot n = n^2\) upward moves.
 
 === 9.2 Counter pump, 3-register version (Θ(n^3)) ===
-Taking the 3-register version of the counter pump maze/counter-pump-3/cp3-N-3d.hs, compiling it to 2-register Gödel form with nd-to-2d.py of §5, and feeding it to hs2maze, we obtain a maze with path length of a higher polynomial order than cp2:
+Taking the 3-register version of the counter pump maze/counter-pump-3/cp3-N-3d.hs, compiling it to 2-register Gödel form with nd-to-2d.py of §5, and feeding it to hs2maze, I obtain a maze with path length of a higher polynomial order than cp2:
 
 {| class="wikitable"
 ! File !! n_regs !! Total terminal count \(T\) !! Shortest path length
@@ -655,7 +655,7 @@ Below is a drawing of the shortest path for n=2.
 Only the motion of (x,y) is shown. Because of Gödel encoding, this figure does not reveal the content of the computation well, but one can see that it moves back and forth along the x=0 and y=0 axes.
 
 === 9.3 Minsky doubling machine (shortest path length Θ(2^k)) ===
-The counter pump stops at polynomial-order growth. To push this up to '''exponential order''', we introduce a design that iterates a "doubling" by a Minsky machine \(k\) times.
+The counter pump stops at polynomial-order growth. To push this up to '''exponential order''', I introduce a design that iterates a "doubling" by a Minsky machine \(k\) times.
 
 ==== 9.3.1 Definition of the doubling machine ====
 The Minsky doubling machine \(\mathrm{md}_k\) with cycle count \(k\) applies the affine map \(y \mapsto 2y + 1\) \(k\) times, starting from \(y_0 = 1\), computing
@@ -736,7 +736,7 @@ Below is a drawing example for n=5 (shortest path length \(\approx 2^5\)).
 === 9.4 Pentation maze (shortest path length Ω(3^(2↑↑↑n))) ===
 Whereas Minsky doubling tops out at exponential order \(\Theta(2^k)\), applying the construction in §8 of "embedding a Minsky machine \(M_f\) that computes a fast-growing function \(f\) into a block" to \(f(n) = 2 \uparrow\uparrow\uparrow n\) (pentation) yields a maze whose path length is \(L^* = \Omega(3^{2 \uparrow\uparrow\uparrow n})\) for input \(n\) (the computation result appears in the maze coordinates as the Gödel encoding \(x = 3^{2 \uparrow\uparrow\uparrow n}\), and reducing it down to 0 alone takes \(x\) steps).
 
-This is a reconstruction of the previous version [[User blog:Koteitan/Pentation Maze|Pentation Maze]] (koteitan, 2025). The previous version packed in density using 23 block types and position-dependent rules, whereas in this work we show that, by going through the pipeline of §6 / §7 / §5 (Haskell description → hs2maze → 4-block maze, with nd-to-2d turning n registers into 2 registers as needed), the design reduces to a repeated maze made of only '''4 uniform block types (normal / nx / ny / zero)'''.
+This is a reconstruction of the previous version [[User blog:Koteitan/Pentation Maze|Pentation Maze]] (koteitan, 2025). The previous version packed in density using 23 block types and position-dependent rules, whereas in this work I show that, by going through the pipeline of §6 / §7 / §5 (Haskell description → hs2maze → 4-block maze, with nd-to-2d turning n registers into 2 registers as needed), the design reduces to a repeated maze made of only '''4 uniform block types (normal / nx / ny / zero)'''.
 
 ==== 9.4.1 Construction ====
 maze/penta/make_penta.py feeds the input \(r_0 = a\) (\(a\) a nonnegative integer) to a 2-register Minsky machine as the Gödel encoding \(x = 2^a\), and automatically generates the Haskell source [https://github.com/koteitan/repeated-maze/blob/main/maze/penta/penta.hs penta.hs] that computes pentation with 14 Fractran-style rules. Specifically, it implements the following as a Minsky 1967 register machine:
