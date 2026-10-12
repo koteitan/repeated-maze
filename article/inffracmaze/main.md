@@ -269,6 +269,10 @@ $(\omega^r)^*$ が $L_1 \rightarrow L_2$ に埋め込める場合も、 $F$ の�
 
 (2) $\omega^{r+1}$ が埋め込めないこと。 順序埋め込み $f: \omega^{r+1} \rightarrow \sum_{n<\omega} A_n$ があるとする。 $\omega^{r+1}$ は $\omega^r \rightarrow \omega^r \rightarrow \cdots$ と同じ順序型なので、 $\omega^{r+1}$ の中に、 最初の $\omega^r$ に当たる部分 $B_0$ と、 2 つ目の $\omega^r$ に当たる部分 $B_1$ がある。 $B_0$ は順序型 $\omega^r$ で、 $B_0$ のどの元も $B_1$ のどの元より小さい。 $B_1$ の元 $y$ を 1 つとり、 $f(y)$ が入る $A_N$ を考える。 $B_0$ のどの元 $x$ も $x < y$ なので $f(x) < f(y)$ で、 上の事実より、 $f(x)$ は $A_0 \rightarrow \cdots \rightarrow A_N$ に入る。 よって $f$ を $B_0$ に制限したものは $B_0$ から $A_0 \rightarrow \cdots \rightarrow A_N$ への順序埋め込みで、 $\omega^r$ が $A_0 \rightarrow \cdots \rightarrow A_N$ に埋め込めることになり、 矛盾する。 $\square$
 
+(2) の様子を下図に示す。
+
+![Koteitan-inffracmaze-07-wtrp1-ja.svg](Koteitan-inffracmaze-07-wtrp1-ja.svg)
+
 **主補題.** どの無限ホップ $h$ についても $\Phi_{r(h)}(X(h))$ である。
 
 *証明.* $r(h)$ についての帰納法による。 $P$ の中の無限ホップはどれも深さ $r(h)-1$ 以下なので、 帰納法の仮定と系 1 より $\Phi_{r(h)-1}(X(P))$ である。 $X(ST^nP)$ は $X(P)$ と同じ順序型なので、 補題 2 より $\Phi_{r(h)}\left(\sum_n X(ST^nP)\right)$ である。 $Q$ の側も同様で、 逆順にしても $\Phi_{r(h)}$ は保たれる。 ホップ点 $ST^\omega$ だけからなる 1 点の線形順序集合 $\{ST^\omega\}$ は $\Phi_{r(h)}$ を満たす ($r(h) \geq 1$ なので、 $\omega^{r(h)}$ は 1 点に埋め込めない)。 系 1 より、 これらの順序和 $X(h)$ は $\Phi_{r(h)}$ を満たす。 $\square$
@@ -278,18 +282,6 @@ $(\omega^r)^*$ が $L_1 \rightarrow L_2$ に埋め込める場合も、 $F$ の�
 証明では迷路が有限であることを使っていない。 使ったのは「経路が有限であること」と「無限ホップを認めるのに自分自身を使わないこと」の 2 つだけである。
 
 $\omega^k+1$ 個の例は深さ $k+1$ の無限ホップで、 上限 $\omega^{k+1}$ より 1 段下の $\omega^k+1$ に達している。
-
-#### Lean
-上の証明を Lean 4 + Mathlib で `sorry` なしに形式化した: [lean/HopBound.lean](https://github.com/koteitan/repeated-maze/blob/main/article/inffracmaze/lean/HopBound.lean)
-
-- `Shape` は有限の導出 (空、 連結、 逆向き、 無限ホップ) を表す帰納型、 `Shape.T s` はそのホップ点の並びである。
-- `W r` は $\omega^r$ ($\mathbb{N}^r$ の辞書式順序)、 `Wω` は $\omega^\omega$ ($\sum_R \omega^R$) である。
-- 順序和 $L_1 \rightarrow L_2$ は `L₁ ⊕ₗ L₂`、 同じ $L$ の ω 個の順序和 $\sum_{n<\omega} L$ は `ℕ ×ₗ L`、 逆順 $L^*$ は `Lᵒᵈ`、 埋め込めることは順序埋め込み `↪o` で表した。
-- 主定理 `no_omega_pow_omega (s : Shape) : IsEmpty (Wω ↪o s.T)` は、 どの導出のホップ点の並びにも $\omega^\omega$ が埋め込めないことを述べる。
-- $\omega+1$ 個の例 (深さ 2) のホップ点の並びに $\omega$ が埋め込めることも証明してあり、 定理が空虚でないことを確かめている。
-
-Lean で証明したのは、 解を `Shape` で表したときの主張である。 Siggy のルールの解が `Shape` で表せること (前提 1〜4) は、 本稿のルールの読み方による。 Lean v4.33.1、 Mathlib v4.33.1 で検証した。
-
 
 ## 参考文献
 - 1999, M. J. P. Wolf, "FRACTAL MAZES", ENIGMA, Extropy #17, pp.67--68.
