@@ -4,6 +4,12 @@
 
 Find the maze configurations that maximize the shortest path length, analogous to the Busy Beaver problem for Turing machines but applied to register machines on repeated tile mazes.
 
+# Articles
+- [Generating repeated mazes with fast-growing-function path lengths using Minsky register machines](https://googology.fandom.com/wiki/User_blog:Koteitan/Generating_repeated_mazes_with_fast-growing-function_path_lengths_using_Minsky_register_machines)
+
+# Demo Site
+- https://koteitan.github.io/repeated-maze/
+
 ## Overview
 
 A "repeated maze" consists of identical blocks tiled across an infinite 2D grid. Each block has terminals (ports) on its four sides that connect to adjacent blocks. A player navigates from a start state to a goal state through these port connections. The challenge is to find the maze configuration (port assignment) that maximizes the length of the shortest path.
