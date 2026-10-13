@@ -71,5 +71,5 @@
 
   <!-- explanation -->
   <text x="40" y="422" font-size="15" fill="#222">f(x) &lt; f(y) で f(y) は A<tspan dy="4" font-size="11">N</tspan><tspan dy="-4"> に入るので、 f(x) は A</tspan><tspan dy="4" font-size="11">0</tspan><tspan dy="-4"> → … → A</tspan><tspan dy="4" font-size="11">N</tspan><tspan dy="-4"> に入る。 青の帯は f による B</tspan><tspan dy="4" font-size="11">0</tspan><tspan dy="-4"> の行き先。</tspan></text>
-  <text x="40" y="448" font-size="15" fill="#222">よって ω<tspan dy="-6" font-size="11">r</tspan><tspan dy="6"> (= B</tspan><tspan dy="4" font-size="11">0</tspan><tspan dy="-4">) が A</tspan><tspan dy="4" font-size="11">0</tspan><tspan dy="-4"> → … → A</tspan><tspan dy="4" font-size="11">N</tspan><tspan dy="-4"> に埋め込めるが、 系 1 よりそれはできないので矛盾。</tspan></text>
+  <text x="40" y="448" font-size="15" fill="#222">よって ω<tspan dy="-6" font-size="11">r</tspan><tspan dy="6"> (= B</tspan><tspan dy="4" font-size="11">0</tspan><tspan dy="-4">) が A</tspan><tspan dy="4" font-size="11">0</tspan><tspan dy="-4"> → … → A</tspan><tspan dy="4" font-size="11">N</tspan><tspan dy="-4"> に埋め込める。 系 1 より、 ある A</tspan><tspan dy="4" font-size="11">i</tspan><tspan dy="-4"> に ω</tspan><tspan dy="-6" font-size="11">r</tspan><tspan dy="6"> が埋め込める。</tspan></text>
 </svg>

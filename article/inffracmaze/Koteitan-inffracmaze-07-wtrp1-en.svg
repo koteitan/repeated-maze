@@ -71,5 +71,5 @@
 
   <!-- explanation -->
   <text x="40" y="422" font-size="15" fill="#222">Since f(x) &lt; f(y) and f(y) lies in A<tspan dy="4" font-size="11">N</tspan><tspan dy="-4">, f(x) lies in A</tspan><tspan dy="4" font-size="11">0</tspan><tspan dy="-4"> → … → A</tspan><tspan dy="4" font-size="11">N</tspan><tspan dy="-4">. The blue band is the image of B</tspan><tspan dy="4" font-size="11">0</tspan><tspan dy="-4"> under f.</tspan></text>
-  <text x="40" y="448" font-size="15" fill="#222">Hence ω<tspan dy="-6" font-size="11">r</tspan><tspan dy="6"> (= B</tspan><tspan dy="4" font-size="11">0</tspan><tspan dy="-4">) embeds into A</tspan><tspan dy="4" font-size="11">0</tspan><tspan dy="-4"> → … → A</tspan><tspan dy="4" font-size="11">N</tspan><tspan dy="-4">, which Corollary 1 rules out: a contradiction.</tspan></text>
+  <text x="40" y="448" font-size="15" fill="#222">Hence ω<tspan dy="-6" font-size="11">r</tspan><tspan dy="6"> (= B</tspan><tspan dy="4" font-size="11">0</tspan><tspan dy="-4">) embeds into A</tspan><tspan dy="4" font-size="11">0</tspan><tspan dy="-4"> → … → A</tspan><tspan dy="4" font-size="11">N</tspan><tspan dy="-4">, so by Corollary 1 it embeds into some A</tspan><tspan dy="4" font-size="11">i</tspan><tspan dy="-4">.</tspan></text>
 </svg>

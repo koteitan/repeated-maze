@@ -231,10 +231,16 @@ $\omega^k+1$ は $k$ をいくらでも大きくできるが、 $\omega^\omega$ 
 1. 解は start から goal への有限の経路である。 1 歩は「辺を 1 本たどる」か「認められた無限ホップを 1 回する」かである。
 2. 無限ホップ $h$ は、 無限ホップルールの記号 $S, T, U, V$ と分岐点 $1, 2$ を使って、 アドレス $SU1$ と $SV2$ の間を飛び越えるものである。 $S$ は 2 つのアドレスに共通する外側のサブ迷路列で、 $h$ は丸ごとサブ迷路 $S$ の中で起きる ($S$ が空なら迷路全体 $M$ の中)。 $h$ を認めるには、 2 本の有限の経路 $P: U1 \rightarrow TU1$ と $Q: V2 \rightarrow TV2$ を示す。 $P$, $Q$ の中の無限ホップは、 $h$ より前に認められたものに限る。
 3. 無限ホップ $h$ の **深さ** $r(h)$ を、 $P$, $Q$ の中の無限ホップの深さの最大値に 1 を足したものとする ($P$, $Q$ に無限ホップがなければ $r(h)=1$)。 2 により、 $r(h)$ は有限の自然数である。
-4. 経路 $P$ をサブ迷路列 $W$ の中に置いたコピーを $WP$ と書く。 無限ホップ $h$ を実際の経路に展開すると、 次の順に進む。
+4. 経路 $P$ をサブ迷路列 $W$ の中に置いたコピーを $WP$ と書く (下図)。
+
+   ![Koteitan-inffracmaze-08-wp-ja.svg](Koteitan-inffracmaze-08-wp-ja.svg)
+
+   無限ホップ $h$ を実際の経路に展開すると、 次の順に進む (下図)。
    - $SP, STP, ST^2P, \ldots$: $SU1$ から出発し、 $SU1 \rightarrow STU1 \rightarrow ST^2U1 \rightarrow \cdots$ と進んで $ST^\omega$ に近づく。
    - $ST^\omega$: $S$ に入り、 そのあと $T$ に無限に入り続けた先の 1 点である。 2 本の経路の間の幅 0 の隙間はここにあり、 $h$ のホップ点である。 例えば 1 個の例では $S$ は空、 $T = A$ なので $ST^\omega = A^\omega$ である。
    - $\ldots, ST^2Q, STQ, SQ$ (逆向き): $ST^\omega$ から離れ、 $\cdots \rightarrow STV2 \rightarrow SV2$ と進んで $SV2$ に着く。
+
+   ![Koteitan-inffracmaze-09-unfold-ja.svg](Koteitan-inffracmaze-09-unfold-ja.svg)
 
 5. **ホップ点の並び $X$.** $X$ の引数は「無限ホップ (1 手)」または「経路」であり、 ホップ点そのものではない。
    - 無限ホップ $h$ に対して、 $X(h)$ は、 $h$ を 4 のように展開したときに渡るホップ点の集合に、 渡る順の順序を入れた線形順序集合である。 $X(h)$ には、 $h$ 自身のホップ点 $ST^\omega$ と、 $P$, $Q$ の中の無限ホップを展開したときに渡るホップ点が入る。
@@ -253,41 +259,71 @@ X(h) &=  \sum_{n\lt \omega} X(ST^nP) \rightarrow \{ST^\omega\} \rightarrow \left
 
 右辺の $X(ST^nP)$ と $X(ST^nQ)$ は経路に対する $X$ で、 $X(h)$ は無限ホップに対する $X$ である。 $ST^nP$ は $P$ をサブ迷路 $ST^n$ の中にずらしたコピーなので、 $X(ST^nP)$ は $X(P)$ と同じ順序型である。 $Q$ についても同様である。
 
-**記号.** 線形順序集合 $L$ に $\omega^r$ も $(\omega^r)^{\ast}$ も埋め込めないことを $\Phi_r(L)$ と書く。 $r \leq r'$ ならば $\Phi_r(L) \Rightarrow \Phi_{r'}(L)$ であり、 $\Phi_r(L) \Leftrightarrow \Phi_r(L^{\ast})$ である。
+**記号.** 線形順序集合 $L$ に $\omega^r$ と $(\omega^r)^{\ast}$ の少なくとも一方が埋め込めることを $\Phi_r(L)$ と書く。 次が成り立つ。
 
-**補題 1 (2 個の順序和).** $\Phi_r(L_1)$ かつ $\Phi_r(L_2)$ ならば $\Phi_r(L_1 \rightarrow L_2)$ である。
+- $r \leq r'$ ならば $\Phi_{r'}(L) \Rightarrow \Phi_r(L)$ である ( $\omega^r$ は $\omega^{r'}$ に埋め込めるので)。
+- $\Phi_r(L) \Leftrightarrow \Phi_r(L^{\ast})$ である。
+- 空の線形順序集合は、 どの $r$ についても $\Phi_r$ を満たさない。 $r \geq 1$ のとき、 1 点の線形順序集合も $\Phi_r$ を満たさない ( $\omega^r$ は無限集合なので)。
 
-*証明.* $\omega^r$ が $L_1 \rightarrow L_2$ に埋め込めるとして、 矛盾を導く。 順序埋め込み $f: \omega^r \rightarrow L_1 \rightarrow L_2$ があるとする。 $\omega^r$ の元のうち、 $f$ で $L_2$ に移るものの集合を $F = \lbrace x \in \omega^r \mid f(x) \in L_2\rbrace$ とする。 $L_2$ の元は $L_1$ のどの元よりも大きいので、 $x \in F$ かつ $x \lt y$ ならば $f(x) \lt f(y)$ より $f(y) \in L_2$、 つまり $y \in F$ である。 よって $F$ は $\omega^r$ の終切片 (ある元を含めば、 それより大きい元もすべて含む部分) である。
+**補題 1 (2 個の順序和).** $\Phi_r(L_1 \rightarrow L_2)$ ならば、 $\Phi_r(L_1)$ または $\Phi_r(L_2)$ である。
 
-- $F$ が空でないとき: $\omega^r$ の空でない終切片は $\omega^r$ と同じ順序型である ($\omega^r$ は加法的に分解できない)。 その順序同型 $g: \omega^r \rightarrow F$ と $f$ を合成した $f \circ g: \omega^r \rightarrow L_2$ は順序埋め込みなので、 $\omega^r$ が $L_2$ に埋め込める。 これは $\Phi_r(L_2)$ に矛盾する。
-- $F$ が空のとき: $f$ の像はすべて $L_1$ に入るので、 $f$ は $\omega^r$ から $L_1$ への順序埋め込みになり、 $\omega^r$ が $L_1$ に埋め込める。 これは $\Phi_r(L_1)$ に矛盾する。
+*証明.* $\omega^r$ が $L_1 \rightarrow L_2$ に埋め込める場合を示す。 順序埋め込み $f: \omega^r \rightarrow L_1 \rightarrow L_2$ をとる。 $\omega^r$ の元のうち、 $f$ で $L_2$ に移るものの集合を $F = \lbrace x \in \omega^r \mid f(x) \in L_2\rbrace$ とする。 $L_2$ の元は $L_1$ のどの元よりも大きいので、 $x \in F$ かつ $x \lt y$ ならば $f(x) \lt f(y)$ より $f(y) \in L_2$、 つまり $y \in F$ である。 よって $F$ は $\omega^r$ の終切片 (ある元を含めば、 それより大きい元もすべて含む部分) である。
 
-$(\omega^r)^{\ast}$ が $L_1 \rightarrow L_2$ に埋め込める場合も、 $F$ の代わりに「 $f$ で $L_1$ に移る元の集合」(始切片になる) を考えれば同様に矛盾する。 $\square$
+- $F$ が空でないとき: $\omega^r$ の空でない終切片は $\omega^r$ と同じ順序型である ( $\omega^r$ は加法的に分解できない)。 その順序同型 $g: \omega^r \rightarrow F$ と $f$ を合成した $f \circ g$ は $\omega^r$ から $L_2$ への順序埋め込みなので、 $\Phi_r(L_2)$ である。
+- $F$ が空のとき: $f$ の像はすべて $L_1$ に入るので、 $f$ は $\omega^r$ から $L_1$ への順序埋め込みであり、 $\Phi_r(L_1)$ である。
 
-**系 1 (有限個の順序和).** $\Phi_r(A_0), \ldots, \Phi_r(A_N)$ ならば $\Phi_r(A_0 \rightarrow \cdots \rightarrow A_N)$ である。
+$(\omega^r)^{\ast}$ が $L_1 \rightarrow L_2$ に埋め込める場合も、 $F$ の代わりに「 $f$ で $L_1$ に移る元の集合」(始切片になる) を考えれば同様である。 $\square$
 
-*証明.* 有限個の順序和の再帰の定義 $\sum_{n\lt m+1} A_n = \left(\sum_{n\lt m} A_n\right) \rightarrow A_m$ に沿って、 $m$ についての帰納法で示す。 $m = 0$ のとき $\sum_{n\lt 0} A_n = \emptyset$ には何も埋め込めないので、 $\Phi_r(\emptyset)$ である。 $\Phi_r\left(\sum_{n\lt m} A_n\right)$ と $\Phi_r(A_m)$ から、 補題 1 より $\Phi_r\left(\sum_{n\lt m+1} A_n\right)$ である。 $m = N+1$ とすればよい。 $\square$
+**系 1 (有限個の順序和).** $\Phi_r(A_0 \rightarrow \cdots \rightarrow A_N)$ ならば、 ある $i \leq N$ について $\Phi_r(A_i)$ である。
 
-**補題 2 (ω 個の順序和).** すべての $n$ で $\Phi_r(A_n)$ ならば $\Phi_{r+1}\left(\sum_{n\lt \omega} A_n\right)$ である。
+*証明.* 次の命題 $\mathcal{S}(m)$ を $m$ についての帰納法で示し、 $m = N+1$ とすればよい ( $\sum_{n\lt N+1} A_n = A_0 \rightarrow \cdots \rightarrow A_N$ である)。
 
-*証明.* 2 つに分けて示す。 以下では $\Phi_r(A_n)$ と系 1 から、 どの $N$ についても $\Phi_r(A_0 \rightarrow \cdots \rightarrow A_N)$ である。 また、 次の事実を使う。 $\sum_{n\lt \omega} A_n$ の元は組 $(n, a)$ ($a \in A_n$) で、 1 つ目の成分が $n$ であることを「 $A_n$ に入る」という。
+- $\mathcal{S}(m)$: $\Phi_r\left(\sum_{n\lt m} A_n\right)$ ならば、 ある $i \lt m$ について $\Phi_r(A_i)$ である。
+
+$\mathcal{S}(0)$: $\sum_{n\lt 0} A_n$ は空なので $\Phi_r$ を満たさず、 仮定が成り立たない。 よって $\mathcal{S}(0)$ は成り立つ。
+
+$\mathcal{S}(m)$ ならば $\mathcal{S}(m+1)$: 再帰の定義より $\sum_{n\lt m+1} A_n = \left(\sum_{n\lt m} A_n\right) \rightarrow A_m$ なので、 $\Phi_r\left(\sum_{n\lt m+1} A_n\right)$ ならば、 補題 1 より $\Phi_r\left(\sum_{n\lt m} A_n\right)$ または $\Phi_r(A_m)$ である。 前者なら $\mathcal{S}(m)$ より、 ある $i \lt m$ で $\Phi_r(A_i)$ である。 後者なら $i = m$ とすればよい。 $\square$
+
+**補題 2 (ω 個の順序和).** $\Phi_{r+1}\left(\sum_{n\lt \omega} A_n\right)$ ならば、 ある $n$ について $\Phi_r(A_n)$ である。
+
+*証明.* 次の事実を使う。 $\sum_{n\lt \omega} A_n$ の元は組 $(n, a)$ ($a \in A_n$) で、 1 つ目の成分が $n$ であることを「 $A_n$ に入る」という。
 
 - **事実.** $u$ が $A_N$ に入り、 $v \leq u$ ならば、 $v$ は $A_0 \rightarrow \cdots \rightarrow A_N$ に入る。
 - **理由.** $u = (N, a)$, $v = (n, b)$ とする。 辞書式順序の定義から、 $v \leq u$ は「 $n \lt N$」または「 $n = N$ かつ $A_N$ で $b \leq a$」のどちらかであり、 どちらでも $n \leq N$ である。 $\sum_{n\lt \omega} A_n$ のうち、 1 つ目の成分が $N$ 以下の元を集めた部分は、 和集合による定義での $\sum_{n\lt N+1} A_n = A_0 \rightarrow \cdots \rightarrow A_N$ である。 よって $v$ は $A_0 \rightarrow \cdots \rightarrow A_N$ に入る。
 
-(1) $(\omega^{r+1})^{\ast}$ が埋め込めないこと。 順序埋め込み $f: (\omega^{r+1})^{\ast} \rightarrow \sum_{n\lt \omega} A_n$ があるとする。 $(\omega^{r+1})^{\ast}$ には最大元 $z$ がある ($\omega^{r+1}$ の最小元 $0$ を逆順で見たもの)。 $f(z)$ はある $A_N$ に入る。 どの $x$ も $x \leq z$ なので $f(x) \leq f(z)$ であり、 上の事実より、 $f$ の像はすべて $A_0 \rightarrow \cdots \rightarrow A_N$ に入る。 したがって $f$ は $(\omega^{r+1})^{\ast}$ から $A_0 \rightarrow \cdots \rightarrow A_N$ への順序埋め込みである。 $(\omega^r)^{\ast}$ は $(\omega^{r+1})^{\ast}$ に埋め込めるので、 埋め込みを合成すると $(\omega^r)^{\ast}$ が $A_0 \rightarrow \cdots \rightarrow A_N$ に埋め込めることになり、 矛盾する。
+(1) $(\omega^{r+1})^{\ast}$ が埋め込める場合。 順序埋め込み $f: (\omega^{r+1})^{\ast} \rightarrow \sum_{n\lt \omega} A_n$ をとる。 $(\omega^{r+1})^{\ast}$ には最大元 $z$ がある ( $\omega^{r+1}$ の最小元 $0$ を逆順で見たもの)。 $f(z)$ はある $A_N$ に入る。 どの $x$ も $x \leq z$ なので $f(x) \leq f(z)$ であり、 上の事実より、 $f$ の像はすべて $A_0 \rightarrow \cdots \rightarrow A_N$ に入る。 したがって $f$ は $(\omega^{r+1})^{\ast}$ から $A_0 \rightarrow \cdots \rightarrow A_N$ への順序埋め込みである。 $(\omega^r)^{\ast}$ は $(\omega^{r+1})^{\ast}$ に埋め込めるので、 埋め込みを合成すると $(\omega^r)^{\ast}$ が $A_0 \rightarrow \cdots \rightarrow A_N$ に埋め込め、 $\Phi_r(A_0 \rightarrow \cdots \rightarrow A_N)$ である。 系 1 より、 ある $i \leq N$ について $\Phi_r(A_i)$ である。
 
-(2) $\omega^{r+1}$ が埋め込めないこと。 順序埋め込み $f: \omega^{r+1} \rightarrow \sum_{n\lt \omega} A_n$ があるとする。 $\omega^{r+1}$ は $\omega^r \rightarrow \omega^r \rightarrow \cdots$ と同じ順序型なので、 $\omega^{r+1}$ の中に、 最初の $\omega^r$ に当たる部分 $B_0$ と、 2 つ目の $\omega^r$ に当たる部分 $B_1$ がある。 $B_0$ は順序型 $\omega^r$ で、 $B_0$ のどの元も $B_1$ のどの元より小さい。 $B_1$ の元 $y$ を 1 つとり、 $f(y)$ が入る $A_N$ を考える。 $B_0$ のどの元 $x$ も $x \lt y$ なので $f(x) \lt f(y)$ で、 上の事実より、 $f(x)$ は $A_0 \rightarrow \cdots \rightarrow A_N$ に入る。 よって $f$ を $B_0$ に制限したものは $B_0$ から $A_0 \rightarrow \cdots \rightarrow A_N$ への順序埋め込みで、 $\omega^r$ が $A_0 \rightarrow \cdots \rightarrow A_N$ に埋め込めることになり、 矛盾する。 $\square$
+(2) $\omega^{r+1}$ が埋め込める場合。 順序埋め込み $f: \omega^{r+1} \rightarrow \sum_{n\lt \omega} A_n$ をとる。 $\omega^{r+1}$ は $\omega^r \rightarrow \omega^r \rightarrow \cdots$ と同じ順序型なので、 $\omega^{r+1}$ の中に、 最初の $\omega^r$ に当たる部分 $B_0$ と、 2 つ目の $\omega^r$ に当たる部分 $B_1$ がある。 $B_0$ は順序型 $\omega^r$ で、 $B_0$ のどの元も $B_1$ のどの元より小さい。 $B_1$ の元 $y$ を 1 つとり、 $f(y)$ が入る $A_N$ を考える。 $B_0$ のどの元 $x$ も $x \lt y$ なので $f(x) \lt f(y)$ で、 上の事実より、 $f(x)$ は $A_0 \rightarrow \cdots \rightarrow A_N$ に入る。 よって $f$ を $B_0$ に制限したものは $B_0$ から $A_0 \rightarrow \cdots \rightarrow A_N$ への順序埋め込みで、 $\omega^r$ が $A_0 \rightarrow \cdots \rightarrow A_N$ に埋め込め、 $\Phi_r(A_0 \rightarrow \cdots \rightarrow A_N)$ である。 系 1 より、 ある $i \leq N$ について $\Phi_r(A_i)$ である。 $\square$
 
 (2) の様子を下図に示す。
 
 ![Koteitan-inffracmaze-07-wtrp1-ja.svg](Koteitan-inffracmaze-07-wtrp1-ja.svg)
 
-**主補題.** どの無限ホップ $h$ についても $\Phi_{r(h)}(X(h))$ である。
+**主補題.** 無限ホップ $h$ と自然数 $k \geq 1$ について、 $\Phi_k(X(h))$ ならば $r(h) \geq k+1$ である。 特に、 $\Phi_{r(h)}(X(h))$ は成り立たない。
 
-*証明.* $r(h)$ についての帰納法による。 $P$ の中の無限ホップはどれも深さ $r(h)-1$ 以下なので、 帰納法の仮定と系 1 より $\Phi_{r(h)-1}(X(P))$ である。 $X(ST^nP)$ は $X(P)$ と同じ順序型なので、 補題 2 より $\Phi_{r(h)}\left(\sum_n X(ST^nP)\right)$ である。 $Q$ の側も同様で、 逆順にしても $\Phi_{r(h)}$ は保たれる。 ホップ点 $ST^\omega$ だけからなる 1 点の線形順序集合 $\lbrace ST^\omega\rbrace$ は $\Phi_{r(h)}$ を満たす ($r(h) \geq 1$ なので、 $\omega^{r(h)}$ は 1 点に埋め込めない)。 系 1 より、 これらの順序和 $X(h)$ は $\Phi_{r(h)}$ を満たす。 $\square$
+*証明.* 自然数 $k \geq 1$ について、 命題 $\mathcal{P}(k)$ を次のように定める。
 
-*定理の証明.* 解は有限個の無限ホップ $h_1, \ldots, h_m$ を含む。 その深さの最大値を $R$ とすると、 主補題と系 1 より、 解のホップ点の並びは $\Phi_R$ を満たし、 $\omega^R$ はそこに埋め込めない。 $\omega^R$ は $\omega^\omega$ に埋め込めるので、 もし $\omega^\omega$ が解のホップ点の並びに埋め込めれば、 埋め込みを合成して $\omega^R$ も埋め込めてしまう。 よって $\omega^\omega$ は解のホップ点の並びに埋め込めない。 $\square$
+- $\mathcal{P}(k)$: すべての無限ホップ $h$ について、 $\Phi_k(X(h))$ ならば $r(h) \geq k+1$ である。
+
+以下の (i) と (ii) を示す。
+
+**(i) $\mathcal{P}(1)$ が成り立つ。** $\Phi_1(X(h))$ とする。 1 点の線形順序集合は $\Phi_1$ を満たさないので、 $X(h)$ はホップ点 $ST^\omega$ の 1 点だけではない。 $X(h)$ の残りの元は $X(ST^nP)$ か $X(ST^nQ)$ の元なので、 ある $n$ で $X(ST^nP)$ か $X(ST^nQ)$ は空でない。 これは $P$ か $Q$ が無限ホップを含むことを意味し、 その深さは 1 以上なので、 深さの定義より $r(h) \geq 2$ である。
+
+![Koteitan-inffracmaze-10-main-i-ja.svg](Koteitan-inffracmaze-10-main-i-ja.svg)
+
+**(ii) どの $k \geq 1$ についても、 $\mathcal{P}(k)$ ならば $\mathcal{P}(k+1)$ である。** $\mathcal{P}(k)$ を仮定し、 $\Phi_{k+1}(X(h))$ となる無限ホップ $h$ をとる。 $X(h)$ は次の 3 つの順序和なので、 系 1 より、 そのどれかが $\Phi_{k+1}$ を満たす。
+
+- 1 点 $\lbrace ST^\omega\rbrace$: 1 点は $\Phi_{k+1}$ を満たさないので、 この場合はない。
+- $\sum_{n\lt \omega} X(ST^nP)$: 補題 2 より、 ある $n$ で $\Phi_k(X(ST^nP))$ である。 $X(ST^nP)$ は $X(P)$ と同じ順序型なので、 $\Phi_k(X(P))$ である。 $X(P)$ は $P$ の各歩の $X$ を有限個つないだ順序和なので、 系 1 より、 ある歩の $X$ が $\Phi_k$ を満たす。 辺 1 本の歩の $X$ は空で $\Phi_k$ を満たさないから、 その歩は無限ホップ $h'$ であり、 $\Phi_k(X(h'))$ である (逆向きに通る歩でも、 $\Phi_k$ は逆順で変わらない)。 $\mathcal{P}(k)$ より $r(h') \geq k+1$ である。 $h'$ は $P$ の中の無限ホップなので、 深さの定義より $r(h) \geq r(h')+1 \geq k+2$ である。
+- $\left(\sum_{n\lt \omega} X(ST^nQ)\right)^{\ast}$: $\Phi_{k+1}$ は逆順で変わらないので $\Phi_{k+1}\left(\sum_{n\lt \omega} X(ST^nQ)\right)$ であり、 上と同じ議論で $r(h) \geq k+2$ である。
+
+よって $\mathcal{P}(k+1)$ が成り立つ。
+
+![Koteitan-inffracmaze-11-main-ii-ja.svg](Koteitan-inffracmaze-11-main-ii-ja.svg)
+
+**(i) と (ii) から.** 数学的帰納法により、 すべての $k \geq 1$ について $\mathcal{P}(k)$ が成り立つ。 特に $k = r(h)$ とすると、 $\Phi_{r(h)}(X(h))$ ならば $r(h) \geq r(h)+1$ となるので、 $\Phi_{r(h)}(X(h))$ は成り立たない。 $\square$
+
+*定理の証明.* 解を $\pi$ とする。 $\pi$ が無限ホップを含まなければ $X(\pi)$ は空なので、 何も埋め込めない。 そうでないとき、 $\pi$ に含まれる無限ホップは有限個なので、 その深さの最大値 $R$ がある。 $\omega^\omega$ が $X(\pi)$ に埋め込めるとすると、 $\omega^R$ は $\omega^\omega$ に埋め込めるので、 埋め込みを合成して $\Phi_R(X(\pi))$ である。 $X(\pi)$ は $\pi$ の各歩の $X$ を有限個つないだ順序和なので、 系 1 より、 ある歩の $X$ が $\Phi_R$ を満たす。 その歩は $\pi$ の中のある無限ホップ $h$ で、 $\Phi_R(X(h))$ である。 主補題より $r(h) \geq R+1$ となり、 $R$ が深さの最大値であることに反する。 よって $\omega^\omega$ は $X(\pi)$ に埋め込めない。 $\square$
 
 $\omega^k+1$ 個の例は深さ $k+1$ の無限ホップで、 上限 $\omega^{k+1}$ より 1 段下の $\omega^k+1$ に達している。
 
