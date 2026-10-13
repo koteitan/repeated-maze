@@ -96,7 +96,7 @@ $1$ と $3$ を 1 回の無限ホップで繋ぐことはできない。 ホッ�
 ホップ点を通る順に並べると次のようになる。
 
 ```math
-A^\omega < BA^\omega < BBA^\omega < BBBA^\omega < \cdots < B^\omega
+A^\omega \lt  BA^\omega \lt  BBA^\omega \lt  BBBA^\omega \lt  \cdots \lt  B^\omega
 ```
 
 $B^nA^\omega$ ($n = 0, 1, 2, \ldots$) が $\omega$ 個、 その後に $B^\omega$ が 1 個あるので、 無限ホップの個数は $\omega+1$ である。
@@ -117,7 +117,7 @@ $B^nA^\omega$ ($n = 0, 1, 2, \ldots$) が $\omega$ 個、 その後に $B^\omega
 ホップ点を通る順に並べると次のようになる。
 
 ```math
-A^\omega < BA^\omega < BBA^\omega < \cdots < B^\omega < C^\omega < DC^\omega < DDC^\omega < \cdots < D^\omega
+A^\omega \lt  BA^\omega \lt  BBA^\omega \lt  \cdots \lt  B^\omega \lt  C^\omega \lt  DC^\omega \lt  DDC^\omega \lt  \cdots \lt  D^\omega
 ```
 
 無限ホップの個数は $(\omega+1)+(\omega+1) = \omega 2+1$ である。 前半の最後の $+1$ は、 後半の $\omega$ に吸収される ($1+\omega=\omega$)。
@@ -195,8 +195,8 @@ $\omega^k+1$ は $k$ をいくらでも大きくできるが、 $\omega^\omega$ 
 
 ```math
 \begin{aligned}
-\sum_{n<0} L_n &=  \emptyset \cr
-\sum_{n<m+1} L_n &=  \left(\sum_{n<m} L_n\right) \rightarrow L_m
+\sum_{n\lt 0} L_n &=  \emptyset \cr
+\sum_{n\lt m+1} L_n &=  \left(\sum_{n\lt m} L_n\right) \rightarrow L_m
 \end{aligned}
 ```
 
@@ -205,7 +205,7 @@ $\omega^k+1$ は $k$ をいくらでも大きくできるが、 $\omega^\omega$ 
 
 ```math
 \begin{aligned}
-\sum_{n<\omega} L_n &=  \bigcup_{m<\omega} \sum_{n<m} L_n
+\sum_{n\lt \omega} L_n &=  \bigcup_{m\lt \omega} \sum_{n\lt m} L_n
 \end{aligned}
 ```
 
@@ -213,7 +213,7 @@ $\omega^k+1$ は $k$ をいくらでも大きくできるが、 $\omega^\omega$ 
 
 ```math
 \begin{aligned}
-(n, x) < (m, y) &\Leftrightarrow  n < m \ \text{または}\ \left(n = m \ \text{かつ}\ L_n \ \text{で}\ x < y\right)
+(n, x) \lt  (m, y) &\Leftrightarrow  n \lt  m \ \text{または}\ \left(n = m \ \text{かつ}\ L_n \ \text{で}\ x \lt  y\right)
 \end{aligned}
 ```
 
@@ -247,7 +247,7 @@ $\omega^k+1$ は $k$ をいくらでも大きくできるが、 $\omega^\omega$ 
 
 ```math
 \begin{aligned}
-X(h) &=  \sum_{n<\omega} X(ST^nP) \rightarrow \{ST^\omega\} \rightarrow \left(\sum_{n<\omega} X(ST^nQ)\right)^*
+X(h) &=  \sum_{n\lt \omega} X(ST^nP) \rightarrow \{ST^\omega\} \rightarrow \left(\sum_{n\lt \omega} X(ST^nQ)\right)^*
 \end{aligned}
 ```
 
