@@ -587,7 +587,11 @@
    * Inserts that Lee triggers fire onInsert, which insert_maps the
    * same (x, y, dir) into every older block's m and T.
    */
-  function buildSequentialBlockSubgrids(blockPortsByType, nterm, cellSize) {
+  /* Sequential routing, split in two so a caller can keep the expensive
+   * part: routeSequentialBlocks() runs Lee (steps A-D) and does not
+   * depend on the cell size; subgridsFromRouting() turns its result into
+   * pixel coordinates for one cell size (step E). */
+  function routeSequentialBlocks(blockPortsByType, nterm) {
     /* ---- A. Dedupe ports per block, accumulate nsubAll ---- */
     const blockDeduped = { normal: [], nx: [], ny: [], zero: [] };
     const nsubAll = { W: [], E: [], N: [], S: [] };
@@ -771,20 +775,35 @@
       curH++;
     }
 
-    /* ---- E. Per-block post-processing via buildBlockSubgrid ---- */
+    return { blockDeduped, nsubAll, mByBt, TByBt };
+  }
+
+  function subgridsFromRouting(routed, nterm, cellSize) {
+    /* ---- E. Per-block post-processing via buildBlockSubgrid ----
+     * buildBlockSubgrid paints into m, so hand it copies and keep
+     * `routed` reusable. */
     const out = {};
-    for (const bt of orderBt) {
-      out[bt] = buildBlockSubgrid(blockDeduped[bt], nterm, cellSize, {
-        nsubOverride: nsubAll,
-        externalLeeResult: { m: mByBt[bt], T: TByBt[bt] },
+    for (const bt of ['normal', 'nx', 'ny', 'zero']) {
+      const m = routed.mByBt[bt].map(col => col.slice());
+      const T = routed.TByBt[bt].map(t => t && { x: t.x, y: t.y, dx: t.dx, dy: t.dy });
+      out[bt] = buildBlockSubgrid(routed.blockDeduped[bt], nterm, cellSize, {
+        nsubOverride: routed.nsubAll,
+        externalLeeResult: { m, T },
       });
     }
     return out;
   }
 
+  function buildSequentialBlockSubgrids(blockPortsByType, nterm, cellSize) {
+    return subgridsFromRouting(routeSequentialBlocks(blockPortsByType, nterm), nterm, cellSize);
+  }
+
   global.buildBlockSubgrid = buildBlockSubgrid;
   global.buildSequentialBlockSubgrids = buildSequentialBlockSubgrids;
+  global.routeSequentialBlocks = routeSequentialBlocks;
+  global.subgridsFromRouting = subgridsFromRouting;
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { buildBlockSubgrid, buildSequentialBlockSubgrids };
+    module.exports = { buildBlockSubgrid, buildSequentialBlockSubgrids,
+                       routeSequentialBlocks, subgridsFromRouting };
   }
 })(typeof window !== 'undefined' ? window : globalThis);

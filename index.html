@@ -72,7 +72,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.44</span> <a href="https://github.com/koteitan/repeated-maze" aria-label="GitHub repository" style="vertical-align:middle;color:inherit;"><svg height="24" viewBox="0 0 16 16" width="24" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.19 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a><!-- tracePortCells step cap scales with grid (cp3-2 long-port fix) --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.45</span> <a href="https://github.com/koteitan/repeated-maze" aria-label="GitHub repository" style="vertical-align:middle;color:inherit;"><svg height="24" viewBox="0 0 16 16" width="24" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.19 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a><!-- faster drawing (Lee cache, merged runs, off-canvas culling) and tetra presets --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -108,6 +108,9 @@ try {
     <option value="md4">minsky doubling md4</option>
     <option value="md5">minsky doubling md5</option>
     <option value="cp3-2">counter pump cp3-2</option>
+    <option value="tetra-2">tetration tetra-2</option>
+    <option value="tetra-3">tetration tetra-3</option>
+    <option value="tetra-4">tetration tetra-4</option>
   </select></label>
   <span id="preset-status" class="preset-status" role="status"></span>
   <span id="dbg-canvas-size" style="font-size: 12px; color: var(--text-dim);"></span>
@@ -441,10 +444,14 @@ function setupCanvas(canvasId, wrapId, bounds) {
     const CELL_tmp = BASE_CELL * scale;
     const halfColBlocks = (cssW / 2) / CELL_tmp;
     const halfRowBlocks = (cssH / 2) / CELL_tmp;
-    minX = Math.floor(viewState.cx - halfColBlocks) - 1;
-    maxX = Math.ceil(viewState.cx + halfColBlocks) + 1;
-    minY = Math.floor(viewState.cy - halfRowBlocks) - 1;
-    maxY = Math.ceil(viewState.cy + halfRowBlocks) + 1;
+    /* Only blocks that are at least partly on the canvas.  bpos() puts
+     * block bx at x in [bx, bx+1] and block by at y in [by-1, by] (in
+     * block units around viewState.cx/cy), and nothing a block draws
+     * leaves its own square, so the others need not be drawn. */
+    minX = Math.floor(viewState.cx - halfColBlocks);
+    maxX = Math.ceil(viewState.cx + halfColBlocks) - 1;
+    minY = Math.floor(viewState.cy - halfRowBlocks) + 1;
+    maxY = Math.ceil(viewState.cy + halfRowBlocks);
     viewCenterPx = { x: cssW / 2, y: cssH / 2 };
   } else {
     /* Non-main canvases (e.g. future overlays): keep the old auto-fit. */
@@ -549,6 +556,59 @@ function setupCanvas(canvasId, wrapId, bounds) {
 
 /* ---- Draw normal view ---- */
 
+/* Lee routing depends only on the maze and nterm, not on pan or zoom, so
+ * it is kept across redraws.  Only the pixel conversion is redone, and
+ * only when the cell size changes. */
+let leeCache = null;   /* { key, routed, cell, result } */
+function cachedBlockSubgrids(maze, nterm, cell) {
+  const key = nterm + '|' + JSON.stringify(maze);
+  if (!leeCache || leeCache.key !== key) {
+    leeCache = { key, routed: routeSequentialBlocks(maze, nterm), cell: null, result: null };
+  }
+  if (leeCache.cell !== cell) {
+    leeCache.result = subgridsFromRouting(leeCache.routed, nterm, cell);
+    leeCache.cell = cell;
+  }
+  return leeCache.result;
+}
+
+/* Straight runs of a subgrid.  Every cell has a left and a right half
+ * line (along its row) and an up and a down half line (along its
+ * column).  Consecutive halves that are all present form one run, which
+ * is drawn with one call instead of one call per half.
+ *   hRuns = [r, k0, k1, ...]: row r, halves k0..k1, where half k is cell
+ *           k >> 1, its left half for even k and its right half for odd k.
+ *   vRuns = [c, k0, k1, ...]: column c, halves k0..k1, where half k is
+ *           row k >> 1, its upper half for even k and its lower half for
+ *           odd k.
+ * The runs depend only on the subgrid, so they are kept per subgrid. */
+const subgridRunsCache = new WeakMap();
+function subgridRuns(subgrid, nR, nC) {
+  let runs = subgridRunsCache.get(subgrid);
+  if (runs) return runs;
+  const LEFT = '─┘┐┼┬┴┤', RIGHT = '─└┌┼┬┴├', UP = '│└┘┼┴├┤', DOWN = '│┌┐┼┬├┤';
+  const hRuns = [], vRuns = [];
+  for (let r = 0; r < nR; r++) {
+    let k0 = -1;
+    for (let k = 0; k <= 2 * nC; k++) {
+      const on = k < 2 * nC && ((k & 1) ? RIGHT : LEFT).includes(subgrid[r][k >> 1]);
+      if (on && k0 < 0) k0 = k;
+      if (!on && k0 >= 0) { hRuns.push(r, k0, k - 1); k0 = -1; }
+    }
+  }
+  for (let c = 0; c < nC; c++) {
+    let k0 = -1;
+    for (let k = 0; k <= 2 * nR; k++) {
+      const on = k < 2 * nR && ((k & 1) ? DOWN : UP).includes(subgrid[k >> 1][c]);
+      if (on && k0 < 0) k0 = k;
+      if (!on && k0 >= 0) { vRuns.push(c, k0, k - 1); k0 = -1; }
+    }
+  }
+  runs = { hRuns, vRuns };
+  subgridRunsCache.set(subgrid, runs);
+  return runs;
+}
+
 function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
   const setup = setupCanvas('canvas', 'canvas-wrap', bounds);
   const { ctx, bpos, CELL, MARGIN, S, hlineBetween, vlineBetween } = setup;
@@ -597,7 +657,7 @@ function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
   let gridResult = null;
   let gridResultsByBt = null;
   if (!diagonal) {
-    gridResultsByBt = buildSequentialBlockSubgrids(maze, nterm, CELL);
+    gridResultsByBt = cachedBlockSubgrids(maze, nterm, CELL);
     gridResult = gridResultsByBt.normal;
     gridTermPos = gridResult.termPos;
   }
@@ -828,32 +888,48 @@ function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
           ctx.lineWidth = 1;
           ctx.lineCap = 'butt';
         }
-        for (let r = 0; r < sgR; r++) {
-          for (let c = 0; c < sgC; c++) {
-            const shape = subgrid[r][c];
-            if (shape === ' ') continue;
-            const cx = bp.x + (c + 0.5) * sgCW;
-            const cy = bp.y + (r + 0.5) * sgRH;
-            const hw = sgCW / 2, hh = sgRH / 2;
-            if (crisp) {
-              if ('─┘┐┼┬┴┤'.includes(shape)) hlineBetween(cx - hw, cy, cx); /* left */
-              if ('─└┌┼┬┴├'.includes(shape)) hlineBetween(cx, cy, cx + hw); /* right */
-              if ('│└┘┼┴├┤'.includes(shape)) vlineBetween(cx, cy - hh, cy); /* up */
-              if ('│┌┐┼┬├┤'.includes(shape)) vlineBetween(cx, cy, cy + hh); /* down */
-            } else {
-              ctx.beginPath();
-              if ('─┘┐┼┬┴┤'.includes(shape)) { ctx.moveTo(cx - hw, cy); ctx.lineTo(cx, cy); }
-              if ('─└┌┼┬┴├'.includes(shape)) { ctx.moveTo(cx, cy); ctx.lineTo(cx + hw, cy); }
-              if ('│└┘┼┴├┤'.includes(shape)) { ctx.moveTo(cx, cy - hh); ctx.lineTo(cx, cy); }
-              if ('│┌┐┼┬├┤'.includes(shape)) { ctx.moveTo(cx, cy); ctx.lineTo(cx, cy + hh); }
-              ctx.stroke();
-            }
-          }
+        /* One call per straight run (see subgridRuns), with the same end
+         * coordinates the per-half calls used, so a crisp run fills the
+         * same pixels as its halves did. */
+        const runs = subgridRuns(subgrid, sgR, sgC);
+        const hw = sgCW / 2, hh = sgRH / 2;
+        if (!crisp) ctx.beginPath();
+        const hRuns = runs.hRuns;
+        for (let i = 0; i < hRuns.length; i += 3) {
+          const r = hRuns[i], k0 = hRuns[i + 1], k1 = hRuns[i + 2];
+          const cy = bp.y + (r + 0.5) * sgRH;
+          const cx0 = bp.x + ((k0 >> 1) + 0.5) * sgCW;
+          const cx1 = bp.x + ((k1 >> 1) + 0.5) * sgCW;
+          const x0 = (k0 & 1) ? cx0 : cx0 - hw;
+          const x1 = (k1 & 1) ? cx1 + hw : cx1;
+          if (crisp) hlineBetween(x0, cy, x1);
+          else { ctx.moveTo(x0, cy); ctx.lineTo(x1, cy); }
         }
-        /* Junction dots */
+        const vRuns = runs.vRuns;
+        for (let i = 0; i < vRuns.length; i += 3) {
+          const c = vRuns[i], k0 = vRuns[i + 1], k1 = vRuns[i + 2];
+          const cx = bp.x + (c + 0.5) * sgCW;
+          const cy0 = bp.y + ((k0 >> 1) + 0.5) * sgRH;
+          const cy1 = bp.y + ((k1 >> 1) + 0.5) * sgRH;
+          const y0 = (k0 & 1) ? cy0 : cy0 - hh;
+          const y1 = (k1 & 1) ? cy1 + hh : cy1;
+          if (crisp) vlineBetween(cx, y0, y1);
+          else { ctx.moveTo(cx, y0); ctx.lineTo(cx, y1); }
+        }
+        if (!crisp) ctx.stroke();
+        /* Junction dots.  A dot sits at a subgrid cell centre, so the next
+         * line and the next cell's dot are g = min(sgCW, sgRH) away.  With
+         * 1-px lines, r = g/2 - 0.5 leaves a 1-px gap to a neighbouring dot
+         * and g/2 to a neighbouring line.  3*S (the old fixed size) is the
+         * upper limit, so large cells look as before. */
+        const jr = Math.max(0.5, Math.min(3 * S, Math.min(sgCW, sgRH) / 2 - 0.5));
         for (const j of junctions) {
+          /* A crisp line through y fills pixel row round(y), centred at
+           * round(y) + 0.5; centre the dot on it. */
+          const jx = crisp ? Math.round(bp.x + j.x) + 0.5 : bp.x + j.x;
+          const jy = crisp ? Math.round(bp.y + j.y) + 0.5 : bp.y + j.y;
           ctx.beginPath();
-          ctx.arc(bp.x + j.x, bp.y + j.y, 3 * S, 0, 2 * Math.PI);
+          ctx.arc(jx, jy, jr, 0, 2 * Math.PI);
           ctx.fillStyle = color('stroke');
           ctx.fill();
         }
@@ -1240,13 +1316,14 @@ function drawSimple(path, bounds) {
     };
   }
 
-  /* Visible block range */
+  /* Visible block range: blocks at least partly on the canvas (same
+   * block placement as in setupCanvas). */
   const halfCols = (cssW / 2) / CELL;
   const halfRows = (cssH / 2) / CELL;
-  const visMinX = Math.max(0, Math.floor(simpleViewState.cx - halfCols) - 1);
-  const visMaxX = Math.ceil(simpleViewState.cx + halfCols) + 1;
-  const visMinY = Math.max(0, Math.floor(simpleViewState.cy - halfRows) - 1);
-  const visMaxY = Math.ceil(simpleViewState.cy + halfRows) + 1;
+  const visMinX = Math.max(0, Math.floor(simpleViewState.cx - halfCols));
+  const visMaxX = Math.ceil(simpleViewState.cx + halfCols) - 1;
+  const visMinY = Math.max(0, Math.floor(simpleViewState.cy - halfRows) + 1);
+  const visMaxY = Math.ceil(simpleViewState.cy + halfRows);
 
   /* Clear */
   ctx.fillStyle = color('canvas-bg');
@@ -1735,6 +1812,9 @@ const PRESETS = {
   md4:     'maze/minsky-doubling/md4.maze',
   md5:     'maze/minsky-doubling/md5.maze',
   'cp3-2': 'maze/counter-pump-3/cp3-2.maze',
+  'tetra-2': 'maze/tetra/tetra-2.maze',
+  'tetra-3': 'maze/tetra/tetra-3.maze',
+  'tetra-4': 'maze/tetra/tetra-4.maze',
 };
 /* Show (or clear, with '') the preset load error next to the dropdown. */
 function setPresetStatus(msg) {
