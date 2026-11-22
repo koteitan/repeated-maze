@@ -27,6 +27,7 @@
   - [ミンスキーダブリングマシン](maze/minsky-doubling/README-ja.md) — レジスタマシン符号化による指数的パス長 O(2^{nterm/12})
     - [k=5 の例](maze/minsky-doubling/5-ja.md) — 5回反復のダブリングマシン（662ステップ）
   - [ペンテーション迷路 (penta)](maze/penta/README-ja.md) — Gödel 符号化 2 レジスタミンスキーマシンによる経路長 Ω(2↑↑↑n) の迷路 (§8 の巨大関数ブロック構成を適用)
+  - [テトレーション迷路 (tetra)](maze/tetra/README-ja.md) — cp3-2 と同じくらいのポート数 (約 400) で、 経路長が 3^(2^65536) を超える迷路
 - [ツール](tools/README-ja.md) — Haskell → 迷路 → 解 のパイプライン
   - [hs2maze](tools/hs2maze/README-ja.md) — Haskell 風ステートマシン定義から atomic-port (*1) 迷路文字列への変換器
   - [nd-to-2d](tools/nd-to-2d/README-ja.md) — *n* レジスタ Haskell から 2 レジスタ Gödel Haskell へのコンパイラ
