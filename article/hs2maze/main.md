@@ -742,9 +742,9 @@ $S$ を 2 レジスタのマシンの「動くステップ」($x$ か $y$ が変
 
 一般に、 HALT のときのゲーデル数は $3^b$ なので $S > 3^{2 \uparrow\uparrow (M+1)}$ である。 一方、 ポート数は $308 + 24M$ で、 $M$ に比例して増える。 つまり、 ポート数は $M$ について線形、 最短経路長は $M$ についてテトレーションのオーダーで増える。
 
-tetra-2, tetra-3, tetra-4 は visualizer の preset としても提供されている。 下記は $M = 3$ の描画例である。
+tetra-2, tetra-3, tetra-4 は visualizer の preset としても提供されている。 下記は $M = 4$ (tetra-4) の描画例である。
 
-![Kot-hs2maze-tetra-3.png](Kot-hs2maze-tetra-3.png)
+![Kot-hs2maze-tetra-4.png](Kot-hs2maze-tetra-4.png)
 
 ### 9.5 ペンテーション迷路 (最短経路長 Ω(3^(2↑↑↑n)))
 

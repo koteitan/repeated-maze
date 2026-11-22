@@ -714,9 +714,9 @@ Let $S$ be the number of moves (steps that change $x$ or $y$) of the 2-register 
 
 In general the Gödel number at HALT is $3^b$, so $S > 3^{2 \uparrow\uparrow (M+1)}$. The number of ports is $308 + 24M$ and grows linearly in $M$. So the number of ports grows linearly in $M$, and the shortest path length grows with the order of tetration in $M$.
 
-tetra-2, tetra-3 and tetra-4 are also provided as visualiser presets. Below is a drawing example for $M = 3$.
+tetra-2, tetra-3 and tetra-4 are also provided as visualiser presets. Below is a drawing example for $M = 4$ (tetra-4).
 
-![Kot-hs2maze-tetra-3.png](Kot-hs2maze-tetra-3.png)
+![Kot-hs2maze-tetra-4.png](Kot-hs2maze-tetra-4.png)
 
 ### 9.5 Pentation maze (shortest path length Ω(3^(2↑↑↑n)))
 The shortest path length of the tetration maze of §9.4 grows with the order of tetration in the pass count $M$. Further, applying the construction in §8 of "embedding a Minsky machine $M_f$ that computes a fast-growing function $f$ into a block" to $f(n) = 2 \uparrow\uparrow\uparrow n$ (pentation) yields a maze whose path length is $L^* = \Omega(3^{2 \uparrow\uparrow\uparrow n})$ for input $n$ (the computation result appears in the maze coordinates as the Gödel encoding $x = 3^{2 \uparrow\uparrow\uparrow n}$, and reducing it down to 0 alone takes $x$ steps).
