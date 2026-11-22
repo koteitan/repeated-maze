@@ -1,4 +1,8 @@
+[https://googology.fandom.com/wiki/User_blog:Koteitan/Generating_repeated_mazes_with_fast-growing-function_path_lengths_using_Minsky_register_machines English]
+
 == 概要 ==
+[[ファイル:Kot-hs2maze-repeated-maze.png|center]]
+
 繰り返し迷路 (repeated maze) は、同一のブロックパターンが格子状に繰り返し並ぶ迷路で、意外に遠い場所に迂回してから戻ってくることでゴールに到達するような、複雑な経路構造を持つことがある。
 本稿では、ミンスキー (Minsky) のレジスタマシン (program machine) を Haskell 形式の状態遷移関数として記述し、これを機械的に '''2 次元の繰り返し迷路''' (有向グラフ／無向グラフのいずれか) に変換する手法を示す。
 その応用として、「カウンターポンプ」 「ミンスキー倍加マシン (Minsky doubling machine)」 「ペンテーション迷路」 の 3 種類の繰り返し迷路を構築し、 ミンスキーマシン埋め込みによって最短経路長がブロックの大きさに対して '''巨大関数オーダー''' (\(2 \uparrow\uparrow\uparrow n\) 級) まで陽に爆発することを実例によって示す。
@@ -769,3 +773,6 @@ penta.maze の最短経路長は \(3^{2 \uparrow\uparrow\uparrow 4} = 3^{\overbr
 * 2025: koteitan, "[[ユーザーブログ:Koteitan/繰り返し迷路の歴史|繰り返し迷路の歴史]]", 巨大数研究 Wiki ブログ.
 * 2025: koteitan, "[[ユーザーブログ:Koteitan/ペンテーション迷路|ペンテーション迷路]]", 巨大数研究 Wiki ブログ, 2025.
 * 2026: koteitan, [https://koteitan.github.io/repeated-maze/ repeated-maze (GitHub Pages)], 2026.
+
+
+[[カテゴリ:ブログ記事]]

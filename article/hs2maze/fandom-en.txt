@@ -1,4 +1,8 @@
+[https://googology.fandom.com/ja/wiki/%E3%83%A6%E3%83%BC%E3%82%B6%E3%83%BC%E3%83%96%E3%83%AD%E3%82%B0:Koteitan/%E3%83%9F%E3%83%B3%E3%82%B9%E3%82%AD%E3%83%BC%E3%83%AC%E3%82%B8%E3%82%B9%E3%82%BF%E3%83%9E%E3%82%B7%E3%83%B3%E3%82%92%E7%94%A8%E3%81%84%E3%81%9F%E7%B5%8C%E8%B7%AF%E3%81%8C%E5%B7%A8%E5%A4%A7%E9%96%A2%E6%95%B0%E3%81%AB%E3%81%AA%E3%82%8B%E3%83%91%E3%82%BF%E3%83%BC%E3%83%B3%E7%B9%B0%E3%82%8A%E8%BF%94%E3%81%97%E8%BF%B7%E8%B7%AF%E3%81%AE%E7%94%9F%E6%88%90 Japanese version]
+
 == Overview ==
+
+[[File:Kot-hs2maze-repeated-maze.png|center]]
 
 A repeated maze is a maze in which identical block patterns are tiled on a grid; it can have a complex path structure in which the solution unexpectedly detours to a far-away place and comes back before reaching the goal.
 In this paper, I describe Minsky's register machine (program machine) as a Haskell-style state-transition function and present a method to mechanically convert it into a '''two-dimensional repeated maze''' (either a directed or an undirected graph).
@@ -768,3 +772,6 @@ The two theorems stated in Contribution 6 of §1.4 (undecidability of the reacha
 * 2025: koteitan, "[[User blog:Koteitan/A history of Repeating Mazes|A history of Repeating Mazes]]", Googology Wiki Blog.
 * 2025: koteitan, "[[User blog:Koteitan/Pentation Maze|Pentation Maze]]", Googology Wiki Blog, 2025.
 * 2026: koteitan, [https://koteitan.github.io/repeated-maze/ repeated-maze (GitHub Pages)], 2026.
+
+
+[[Category:Blog posts]]
