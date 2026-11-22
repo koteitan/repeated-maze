@@ -89,6 +89,17 @@ Zero-branch rules (`(0, y, pc) = ...` and `(x, 0, pc) = ...`) in the
 automatically turned into nx / ny ports plus bridges.  No manual
 post-processing is required.
 
+## Flags that reduce the number of ports
+
+Without them the output is unchanged.
+
+| flag | what it does | pcs |
+|---|---|---|
+| `--fast-test` | in a zero test (p ∤ x), the INC x of the unfinished round share one chain, followed by one of two restore loops | O(p²) → 3p+1 |
+| `--fuse` | implies `--fast-test`. When a pc has exactly two rules, "r_j = 0 → A" followed by a catch-all whose action has r_j − 1, the test and the division become one trial division | (3p+1) + (p+3) → 3p+3 |
+
+For cp3-2 the 382 ports become 318 with `--fast-test` and 282 with `--fuse`. [tetra](../../maze/tetra/README.md) uses `--fuse`.
+
 ## Directory
 
 - `nd-to-2d.py` — the tool (currently parser-only).

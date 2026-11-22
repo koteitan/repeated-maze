@@ -36,6 +36,8 @@ Usage:
     python3 nd-to-2d.py input.hs --ast     # same as --parse, more verbose
     python3 nd-to-2d.py                    # read source from stdin
     python3 nd-to-2d.py -                  # same as above (explicit dash)
+    python3 nd-to-2d.py input.hs --fast-test  # zero tests in 3p+1 pcs
+    python3 nd-to-2d.py input.hs --fuse       # also fuse test + DEC pairs
 """
 
 from __future__ import annotations
@@ -49,7 +51,7 @@ from typing import List, Optional, Union
 VERSION = "0.2"
 
 HELP_TEXT = """\
-Usage: nd-to-2d.py [FILE] [--parse | --ast]
+Usage: nd-to-2d.py [FILE] [--parse | --ast] [--fast-test | --fuse]
        nd-to-2d.py --help | -h
        nd-to-2d.py --version | -V
 
@@ -66,6 +68,15 @@ Modes:
   --ast         like --parse, but also dumps the AST node type and
                 value of every LHS pattern and RHS expression slot
                 (debug aid for the parser).
+
+Size options (the default output is unchanged without them):
+  --fast-test   compile each zero test (p does not divide x) in 3p+1 pcs
+                instead of O(p^2): the missing INC x of a partial round
+                share one chain, followed by one of two restore loops.
+  --fuse        implies --fast-test.  A pc with exactly two rules,
+                "r_j = 0 -> A" then a catch-all whose action has r_j - 1,
+                is compiled as one trial division by p_j (3p+3 pcs)
+                instead of a zero test followed by a division.
 
 Other options:
   -h, --help    show this message and exit.
@@ -480,6 +491,72 @@ class Compiler:
         return entry
 
     def test_ndiv(self, p: int, pass_pc: int, fail_pc: int) -> int:
+        if FAST_TEST:
+            return self.test_ndiv_fast(p, pass_pc, fail_pc)
+        return self.test_ndiv_slow(p, pass_pc, fail_pc)
+
+    def test_ndiv_fast(self, p: int, pass_pc: int, fail_pc: int) -> int:
+        # Same contract as test_ndiv_slow, in 3p+1 pcs instead of O(p^2).
+        # Phase A counts x = p*y + k.  For k > 0 the k missing INC x are
+        # replayed first, on a shared chain entered at offset p-1-k; then
+        # one of two restore loops (k = 0 -> fail, k > 0 -> pass) adds p*y.
+        entry = self.new_pc()
+        decs = [entry] + [self.new_pc() for _ in range(p - 1)]
+        incy = self.new_pc()
+
+        def restore(exit_tgt: int) -> int:
+            decy = self.new_pc()
+            incxs = [self.new_pc() for _ in range(p)]
+            self.emit(decy, 0, -1, incxs[0])
+            self.emit_ny(decy, exit_tgt)
+            for i in range(p):
+                nxt = incxs[i + 1] if i + 1 < p else decy
+                self.emit(incxs[i], 1, 0, nxt)
+            return decy
+
+        r_fail = restore(fail_pc)
+        r_pass = restore(pass_pc)
+        extras = [self.new_pc() for _ in range(p - 1)]
+        for j in range(p - 1):
+            nxt = extras[j + 1] if j + 1 < p - 1 else r_pass
+            self.emit(extras[j], 1, 0, nxt)
+        for i in range(p):
+            nxt = decs[i + 1] if i + 1 < p else incy
+            self.emit(decs[i], -1, 0, nxt)
+            self.emit_nx(decs[i], r_fail if i == 0 else extras[p - 1 - i])
+        self.emit(incy, 0, 1, decs[0])
+        return entry
+
+    def try_div(self, p: int, ok_pc: int, zero_pc: int) -> int:
+        # p | x  -> x := x/p, goto ok_pc   (register was > 0, now decremented)
+        # p ∤ x  -> x unchanged, goto zero_pc (register was 0).  3p+3 pcs.
+        entry = self.new_pc()
+        decs = [entry] + [self.new_pc() for _ in range(p - 1)]
+        incy = self.new_pc()
+        s2_decy = self.new_pc()
+        s2_incx = self.new_pc()
+        self.emit(s2_decy, 0, -1, s2_incx)
+        self.emit_ny(s2_decy, ok_pc)
+        self.emit(s2_incx, 1, 0, s2_decy)
+        r_decy = self.new_pc()
+        r_incxs = [self.new_pc() for _ in range(p)]
+        self.emit(r_decy, 0, -1, r_incxs[0])
+        self.emit_ny(r_decy, zero_pc)
+        for i in range(p):
+            nxt = r_incxs[i + 1] if i + 1 < p else r_decy
+            self.emit(r_incxs[i], 1, 0, nxt)
+        extras = [self.new_pc() for _ in range(p - 1)]
+        for j in range(p - 1):
+            nxt = extras[j + 1] if j + 1 < p - 1 else r_decy
+            self.emit(extras[j], 1, 0, nxt)
+        for i in range(p):
+            nxt = decs[i + 1] if i + 1 < p else incy
+            self.emit(decs[i], -1, 0, nxt)
+            self.emit_nx(decs[i], s2_decy if i == 0 else extras[p - 1 - i])
+        self.emit(incy, 0, 1, decs[0])
+        return entry
+
+    def test_ndiv_slow(self, p: int, pass_pc: int, fail_pc: int) -> int:
         # Phase B (decy → incxs*p → decy) restores x by p per DEC y.  The
         # natural loop completes its final iteration before zb='y' fires,
         # so no ny tail is needed.  When k > 0 the partial-round remainder
@@ -551,10 +628,12 @@ class Compiler:
         dispatchers: Dict[int, int],
         halt_drain_pc: int,
         trap_pc: int,
+        ops: Optional[List[Tuple[str, int]]] = None,
     ) -> int:
         """Emit action primitives, then jump to the RHS pc target.
         Returns the entry pc of the action block."""
-        ops = self._action_ops(rule)
+        if ops is None:
+            ops = self._action_ops(rule)
         if rule.rhs_pc == 1 or rule.halt:
             final_dst = halt_drain_pc
         else:
@@ -590,6 +669,20 @@ class Compiler:
         halt_drain_pc: int,
         trap_pc: int,
     ) -> int:
+        if FUSE and len(rules_in_group) == 2:
+            r0, r1 = rules_in_group
+            t0 = [j for j, p in enumerate(r0.lhs_pats)
+                  if isinstance(p, PatLit) and p.value == 0]
+            t1 = [j for j, p in enumerate(r1.lhs_pats)
+                  if isinstance(p, PatLit) and p.value == 0]
+            if len(t0) == 1 and not t1:
+                p = self.primes[t0[0]]
+                ops1 = self._action_ops(r1)
+                if ('div', p) in ops1:
+                    ops1.remove(('div', p))
+                    a0 = self.compile_action(r0, dispatchers, halt_drain_pc, trap_pc)
+                    a1 = self.compile_action(r1, dispatchers, halt_drain_pc, trap_pc, ops=ops1)
+                    return self.try_div(p, ok_pc=a1, zero_pc=a0)
         entries = [self.new_pc() for _ in rules_in_group] + [trap_pc]
         for i, rule in enumerate(rules_in_group):
             entry = entries[i]
@@ -714,8 +807,15 @@ class Compiler:
 # CLI
 # ---------------------------------------------------------------------------
 
+FAST_TEST = False
+FUSE = False
+
+
 def main() -> None:
     args = sys.argv[1:]
+    global FAST_TEST, FUSE
+    FUSE = "--fuse" in args
+    FAST_TEST = "--fast-test" in args or FUSE
     if any(a in ("-h", "--help") for a in args):
         print(HELP_TEXT, end="")
         return
@@ -727,7 +827,7 @@ def main() -> None:
     if "--parse" in args or "--ast" in args:
         mode = "parse"
     verbose = "--ast" in args
-    flag_set = {"--parse", "--ast"}
+    flag_set = {"--parse", "--ast", "--fast-test", "--fuse"}
     positional = [a for a in args if a not in flag_set]
 
     if len(positional) > 1:
