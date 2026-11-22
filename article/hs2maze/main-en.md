@@ -4,7 +4,7 @@
 
 A repeated maze is a maze in which identical block patterns are tiled on a grid; it can have a complex path structure in which the solution unexpectedly detours to a far-away place and comes back before reaching the goal.
 In this paper, I describe Minsky's register machine (program machine) as a Haskell-style state-transition function and present a method to mechanically convert it into a **two-dimensional repeated maze** (either a directed or an undirected graph).
-As applications I construct three families of repeated mazes — "counter pump", "Minsky doubling machine", and "pentation maze" — and show by explicit examples that the Minsky-machine embedding makes the shortest path length blow up to **fast-growing-function order** (of the $2 \uparrow\uparrow\uparrow n$ scale) with respect to the block size.
+As applications I construct four families of repeated mazes — "counter pump", "Minsky doubling machine", "tetration maze", and "pentation maze" — and show by explicit examples that the Minsky-machine embedding makes the shortest path length blow up to **fast-growing-function order** (of the $2 \uparrow\uparrow\uparrow n$ scale) with respect to the block size.
 
 ## 1. Introduction
 ### 1.1 Previous work on repeated mazes
@@ -63,11 +63,12 @@ The contributions of this work are the following six points.
 1. **General-purpose compiler hs2maze**: I implemented a Python tool that, given an arbitrary 2-register Minsky machine written in Haskell-like syntax, mechanically generates the corresponding two-dimensional repeated maze (undirected graph).
 2. **Gödel-encoding compiler nd-to-2d from n-register to 2-register**: I implemented a compiler that, by Gödel encoding ($x = \prod p_i^{r_i}$), converts the Haskell source of an arbitrary n-register Minsky machine into a 2-register version. This makes it possible to turn Minsky machines with three or more registers (e.g., counter-pump-3) into mazes through hs2maze.
 3. **Arbitrary $D$-register Minsky machine → repeated maze of 4 block types**: combining contributions 1 and 2, I found that the computation represented by an arbitrary $D$-register Minsky machine can be expressed as **a repeated tiling of 4 block types: normal / nx / ny / zero**.
-4. **Construction of concrete maze families**: using the compilers above, I constructed four maze families of different orders.
+4. **Construction of concrete maze families**: using the compilers above, I constructed five maze families of different orders.
    - **4-1. Counter pump (cp2)**: a 2-register maze with path length $\Theta(n^2)$ for iteration count $n$.
    - **4-2. Counter pump 3 (cp3)**: a 3-register version compiled down to 2 registers by nd-to-2d, giving a maze whose path length is of a higher polynomial order than cp2.
    - **4-3. Minsky doubling machine (md)**: an exponential-order maze with path length $\Theta(2^k)$ for cycle count $k$.
-   - **4-4. Pentation maze (penta)**: a fast-growing-function-order maze with path length $\Omega(3^{2 \uparrow\uparrow\uparrow n})$ for input $n$. What the previous version realised with 23 block types is rebuilt here with **uniform 4 block types**.
+   - **4-4. Tetration maze (tetra)**: a maze with path length $\Omega(3^{2 \uparrow\uparrow (M+1)})$ for pass count $M$. Its number of ports is linear in $M$, and even for $M = 3$ it has about 400 ports, as many as cp3-2, so it can be drawn in the visualiser.
+   - **4-5. Pentation maze (penta)**: a fast-growing-function-order maze with path length $\Omega(3^{2 \uparrow\uparrow\uparrow n})$ for input $n$. What the previous version realised with 23 block types is rebuilt here with **uniform 4 block types**.
 5. **Repeated-maze viewer and solver**: I built and published a visualiser that draws and lets one explore each of the above mazes in a web browser, together with a BFS-based solver that measures path lengths ([repeated-maze](https://koteitan.github.io/repeated-maze/)).
 6. **Formal proof in Lean**: for repeated mazes of 4 block types, the following two statements have been proved in Lean 4 + Mathlib with no sorry ([lean/README.md](https://github.com/koteitan/repeated-maze/blob/main/lean/README.md)). The axioms used are only Lean's standard axioms.
    - **6-1. Undecidability of the reachability decision**: there is no algorithm that, given a maze as input, decides whether one can reach goal from start. This holds both in the directed case (ports are one-way) and in the undirected case (both directions allowed). This formalises in my maze setting the undecidability sketched by omeometo in §1.3.
@@ -529,7 +530,7 @@ This can be realised by the single Haskell line machine (0, y, 1) = machine (0, 
 
 ---
 ## 9. Construction of concrete maze families
-Based on the construction of §8, I build four maze families of different orders.
+Based on the construction of §8, I build five maze families of different orders.
 
 ### 9.1 Counter pump, 2-register version (Θ(n^2))
 The counter pump is a design that uses the "same pattern tiled on a grid" property unique to repeated mazes to accumulate and release the computation of a Minsky machine asymmetrically "like a pump", so as to achieve a path length of polynomial order.
@@ -662,12 +663,67 @@ Below is a drawing example for n=5 (shortest path length $\approx 2^5$).
 
 ![Kot-hs2maze-md5-solution.png](Kot-hs2maze-md5-solution.png)
 
-### 9.4 Pentation maze (shortest path length Ω(3^(2↑↑↑n)))
-Whereas Minsky doubling tops out at exponential order $\Theta(2^k)$, applying the construction in §8 of "embedding a Minsky machine $M_f$ that computes a fast-growing function $f$ into a block" to $f(n) = 2 \uparrow\uparrow\uparrow n$ (pentation) yields a maze whose path length is $L^* = \Omega(3^{2 \uparrow\uparrow\uparrow n})$ for input $n$ (the computation result appears in the maze coordinates as the Gödel encoding $x = 3^{2 \uparrow\uparrow\uparrow n}$, and reducing it down to 0 alone takes $x$ steps).
+### 9.4 Tetration maze (shortest path length Ω(3^(2↑↑(M+1))))
+In the Minsky doubling machine of §9.3, the shortest path length grows exponentially in the number of ports. In this section I use Gödel encoding to raise this to the order of tetration. cp3-2 of §9.2 has 382 ports and can be drawn in the visualiser, but its shortest path length is only 32,783. Here I build a maze with about as many ports as cp3-2 whose shortest path length is a huge number.
+
+The idea is as follows. When nd-to-2d of §5 Gödel-encodes an n-register machine, the maze x coordinate is the Gödel number $x = 2^a 3^b 5^c 7^d$. The 2-register machine changes $x$ by one per step, so its number of steps is about as large as $x$. So the source machine only has to have few rules and reach large register values.
+
+#### 9.4.1 Source machine
+[maze/tetra/make-tetra.py](https://github.com/koteitan/repeated-maze/blob/main/maze/tetra/make-tetra.py) takes a parameter $M$ and generates tetra-M-4d.hs, a Minsky machine with 4 registers $(a, b, c, d)$. nd-to-2d assigns the primes 2, 3, 5, 7 to the registers, and the machine starts at $(a, b, c, d) = (0, 1, 0, 0)$ (the convention $r_1 = 1$ of §5). It has the following 11 rules.
+
+| pc | rule | meaning |
+|---|---|---|
+| 0 | $a := 2$, $d := M-1$ | setup |
+| 2 | $a = 0$ → pc 5, else $a-1$ → pc 3 | outer loop of one pass |
+| 3 | $b = 0$ → pc 4, else $b-1$, $c+2$ | move $b$ to $c$, doubled |
+| 4 | $c = 0$ → pc 2, else $c-1$, $b+1$ | move $c$ back to $b$ |
+| 5 | $d = 0$ → HALT, else $d-1$ → pc 6 | pass counter |
+| 6 | $b = 0$ → $b := 1$, pc 2, else $b-1$, $a+1$ | move $b$ to $a$, then the next pass |
+
+One pass computes $b := 2^a$ (and $a := 0$). Starting from $a = 2$, $b = 1$ and running $M$ passes, at HALT
+
+\begin{eqnarray}
+b = 2 \uparrow\uparrow (M+1).
+\end{eqnarray}
+
+For $M = 1, 2, 3, 4$, $b$ is $4, 16, 65536, 2^{65536}$.
+
+#### 9.4.2 Compilation and nd-to-2d --fuse
+tetra-M-4d.hs is compiled to the 2-register tetra-M-2d.hs by nd-to-2d --fuse, and then to the maze tetra-M.maze by hs2maze. --fuse is a flag I added to nd-to-2d to reduce the number of ports.
+
+- A zero test (the test $p \nmid x$) takes $3p+1$ pcs instead of $O(p^2)$ (flag --fast-test). The INC x of the unfinished round share one chain, followed by one of two restore loops.
+- The two rules "$r_j = 0$ → A, else $r_j - 1$ → B" are compiled as one trial division ($3p+3$ pcs).
+
+Without the flags, the output of nd-to-2d is the same as before. tetra-3 has 714 ports without flags, 528 with --fast-test and 380 with --fuse.
+
+#### 9.4.3 Size and shortest path length
+Let $S$ be the number of moves (steps that change $x$ or $y$) of the 2-register machine, and $L^*$ the shortest path length of the maze.
+
+| File | $M$ | final $b$ | ports | $S$ | $L^*$ |
+|---|---|---|---|---|---|
+| (make tetra-1.maze) | 1 | 4 | 332 | 10,927 | 21,863 |
+| tetra-2.maze | 2 | 16 | 356 | 2,487,644,246,145 | about $5.0 \times 10^{12}$ |
+| tetra-3.maze | 3 | 65536 | 380 | about $8.137 \times 10^{45808}$ | about $1.6 \times 10^{45809}$ |
+| tetra-4.maze | 4 | $2^{65536}$ | 404 | more than $3^{2^{65536}}$ | about $2S$ |
+| (reference) cp3-2.maze | | | 382 | 16,379 | 32,783 |
+
+- $L^*$ for $M = 1$ is the value measured by tools/solver/solver.py.
+- $S$ is the exact value counted by [maze/tetra/count-steps.py](https://github.com/koteitan/repeated-maze/blob/main/maze/tetra/count-steps.py). The script runs the 2-register machine exactly, but takes many rounds of a loop in one jump, so it works even for huge Gödel numbers. It counts tetra-3 in under a minute.
+- For the mazes the solver can solve, $L^* - 2S$ was small (9 for tetra-1, 25 for cp3-2, 191 for cp3-3). $L^*$ of tetra-2 and tetra-3 is estimated as about $2S$ from this.
+- $S$ of tetra-4 cannot be counted, but it has a lower bound. At HALT the state is $(a, b, c, d) = (0, 2^{65536}, 0, 0)$, so the Gödel number is $x = 3^{2^{65536}}$. Before the goal nd-to-2d decreases $x$ one by one to 0, which alone takes $3^{2^{65536}} \approx 10^{10^{19727.98}}$ steps.
+
+In general the Gödel number at HALT is $3^b$, so $S > 3^{2 \uparrow\uparrow (M+1)}$. The number of ports is $308 + 24M$ and grows linearly in $M$. So the number of ports grows linearly in $M$, and the shortest path length grows with the order of tetration in $M$.
+
+tetra-2, tetra-3 and tetra-4 are also provided as visualiser presets. Below is a drawing example for $M = 3$.
+
+![Kot-hs2maze-tetra-3.png](Kot-hs2maze-tetra-3.png)
+
+### 9.5 Pentation maze (shortest path length Ω(3^(2↑↑↑n)))
+The shortest path length of the tetration maze of §9.4 grows with the order of tetration in the pass count $M$. Further, applying the construction in §8 of "embedding a Minsky machine $M_f$ that computes a fast-growing function $f$ into a block" to $f(n) = 2 \uparrow\uparrow\uparrow n$ (pentation) yields a maze whose path length is $L^* = \Omega(3^{2 \uparrow\uparrow\uparrow n})$ for input $n$ (the computation result appears in the maze coordinates as the Gödel encoding $x = 3^{2 \uparrow\uparrow\uparrow n}$, and reducing it down to 0 alone takes $x$ steps).
 
 This is a reconstruction of the previous version [Pentation Maze](https://googology.fandom.com/wiki/User_blog%3AKoteitan/Pentation_Maze) (koteitan, 2025). The previous version packed in density using 23 block types and position-dependent rules, whereas in this work I show that, by going through the pipeline of §6 / §7 / §5 (Haskell description → hs2maze → 4-block maze, with nd-to-2d turning n registers into 2 registers as needed), the design reduces to a repeated maze made of only **4 uniform block types (normal / nx / ny / zero)**.
 
-#### 9.4.1 Construction
+#### 9.5.1 Construction
 maze/penta/make_penta.py feeds the input $r_0 = a$ ($a$ a nonnegative integer) to a 2-register Minsky machine as the Gödel encoding $x = 2^a$, and automatically generates the Haskell source [penta.hs](https://github.com/koteitan/repeated-maze/blob/main/maze/penta/penta.hs) that computes pentation with 14 Fractran-style rules. Specifically, it implements the following as a Minsky 1967 register machine:
 
 - **Phase 1**: INC x $2^a$ times at pc=0.., setting up the input $x = 2^a$
@@ -682,6 +738,21 @@ The Haskell for $a = 4$ is [penta.hs](https://github.com/koteitan/repeated-maze/
 Converted into a maze by hs2maze, it is [penta.maze](https://github.com/koteitan/repeated-maze/blob/main/maze/penta/penta.maze).
 penta.maze has 22400 terminals and 11494 ports.
 The shortest path length of penta.maze is estimated to be about $3^{2 \uparrow\uparrow\uparrow 4} = 3^{\overbrace{2^{2^{\cdot^{\cdot^{\cdot^{2}}}}}}^{65536 \text{ copies}}}$.
+
+#### 9.5.2 Difference from the tetration maze
+Both are Gödel-encoded 2-register machines and use the same parts: multiplication, division and divisibility tests. The difference is in the source machine.
+
+| | Tetration maze (§9.4) | Pentation maze |
+|---|---|---|
+| source machine | Minsky machine (11 rules) | Fractran (14 fractions) |
+| current position in the program | the pc of the maze | factors of the primes 13, 17, 19 |
+| tests per step | only the rules of the current pc | divisibility tests from the first rule down |
+| primes | 2, 3, 5, 7 | 2, 3, 5, 7, 11, 13, 17, 19 |
+| pcs per zero test | $3p+3$ (--fuse) | $O(p^2)$ |
+| ports | about 400 | 11494 |
+| computes | tetration | pentation |
+
+The pentation maze computes a function one level higher, but it has 11494 ports, too many to draw in the visualiser.
 
 ---
 ## 10. Formalisation in Lean
