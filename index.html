@@ -120,9 +120,9 @@ try {
     <span><span class="swatch sw-path"></span>Path</span>
     <span><span class="swatch sw-start"></span>Start</span>
     <span><span class="swatch sw-goal"></span>Goal</span>
-    <span class="pan-zoom-hint" style="color:var(--text-dim);">Pan/zoom: mouse drag/wheel or swipe/pinch</span>
+    <span class="pan-zoom-hint" style="color:var(--text-dim);">Pan/zoom: mouse drag/wheel or swipe/pinch. Resize: drag the bottom-right corner</span>
   </div>
-  <div id="canvas-wrap" class="canvas-wrap"><canvas id="canvas"></canvas></div>
+  <div id="canvas-wrap" class="canvas-wrap"><canvas id="canvas"></canvas><div id="canvas-resize" class="canvas-resize" title="Drag to resize the canvas; double-click to fit the window"></div></div>
 </div>
 <div id="simple-section" style="display:none;">
   <div class="legend">
@@ -151,6 +151,10 @@ const DEBUG_SHOW_CANVAS_SIZE = false;
 /* Canvas pan/zoom viewport. Set by mouse handlers; setupCanvas uses
  * viewState when .userControlled is true, otherwise fits to path bounds. */
 let viewState = { cx: 0, cy: 0, zoom: 1, userControlled: false };
+/* Size of the normal-graph canvas chosen with the resize handle, in CSS
+ * px ({ w, h }), or null to fit the window. */
+let canvasSize = null;
+const CANVAS_MIN_SIZE = 100;
 let simpleViewState = { cx: 0, cy: 0, zoom: 1, userControlled: false };
 
 /* Read a CSS custom property (e.g. color('stroke') -> value of --stroke).
@@ -421,6 +425,10 @@ function setupCanvas(canvasId, wrapId, bounds) {
     const isMobile = availH < 300;
     cssH = isMobile ? cssW : availH;
     document.body.classList.toggle('mobile-mode', isMobile);
+    if (canvasSize) {
+      cssW = Math.max(CANVAS_MIN_SIZE, Math.min(canvasSize.w, availW));
+      cssH = Math.max(CANVAS_MIN_SIZE, canvasSize.h);
+    }
     if (!viewState.userControlled) {
       const sCols = bounds.maxX - bounds.minX + 1;
       const seedZoom = cssW / (sCols * BASE_CELL);
@@ -1968,6 +1976,42 @@ document.getElementById('reset-btn').addEventListener('click', () => {
   lsRemoveAll();
   window.location.href = window.location.pathname + '?reset';
 });
+/* ---- Canvas resize handle (bottom-right corner of the normal graph) ----
+ * Pointer events, so a mouse and a finger both work.  The handle is not
+ * inside the canvas, so dragging it does not pan the view. */
+(function () {
+  const handle = document.getElementById('canvas-resize');
+  const canvas = document.getElementById('canvas');
+  let drag = null;        /* { x, y, w, h } at pointerdown */
+  let pending = false;    /* a draw is already queued for this frame */
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    const r = canvas.getBoundingClientRect();
+    drag = { x: e.clientX, y: e.clientY, w: r.width, h: r.height };
+    try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  handle.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    canvasSize = { w: drag.w + e.clientX - drag.x, h: drag.h + e.clientY - drag.y };
+    if (!pending) {
+      pending = true;
+      requestAnimationFrame(() => { pending = false; draw(); });
+    }
+  });
+  const end = () => {
+    if (!drag) return;
+    drag = null;
+    saveState();
+  };
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+  handle.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    canvasSize = null;
+    draw();
+    saveState();
+  });
+})();
 document.getElementById('chk-normal').addEventListener('change', toggleVisibility);
 document.getElementById('chk-simple').addEventListener('change', toggleVisibility);
 document.getElementById('chk-diagonal').addEventListener('change', draw);
@@ -2034,6 +2078,10 @@ function loadState() {
       userControlled: true,
     };
   }
+  if (state.canvasSize && typeof state.canvasSize.w === 'number'
+      && typeof state.canvasSize.h === 'number') {
+    canvasSize = { w: state.canvasSize.w, h: state.canvasSize.h };
+  }
   return true;
 }
 
@@ -2044,6 +2092,7 @@ function saveState() {
   if (viewState && viewState.userControlled) {
     state.view = { cx: viewState.cx, cy: viewState.cy, zoom: viewState.zoom };
   }
+  if (canvasSize) state.canvasSize = { w: Math.round(canvasSize.w), h: Math.round(canvasSize.h) };
   lsSaveRaw('state', JSON.stringify(state));
 }
 

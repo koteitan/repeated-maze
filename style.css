@@ -144,6 +144,24 @@ label:has(> input[type="checkbox"]) { display: inline-block; white-space: nowrap
   margin-top: 10px;
   max-width: 100%;
 }
+/* The normal-graph wrap hugs its canvas, so the resize handle sits on
+ * the canvas corner. */
+#canvas-wrap {
+  position: relative;
+  width: fit-content;
+}
+.canvas-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(135deg,
+    transparent 0 50%, var(--text-dim) 50% 58%, transparent 58% 70%,
+    var(--text-dim) 70% 78%, transparent 78% 90%, var(--text-dim) 90%);
+}
 
 /* Swatches bound to CSS variables so darkmode auto-updates them. */
 .sw-path  { background: var(--path); }
