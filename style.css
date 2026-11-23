@@ -110,17 +110,39 @@ button {
 }
 button:hover { background: var(--button-bg-hover); }
 select {
+  font-family: inherit;
   font-size: 14px;
   padding: 4px 6px;
   border: 1px solid var(--border-subtle);
   border-radius: 3px;
   background: var(--canvas-bg);
   color: var(--text);
+  height: 28px;
+  box-sizing: border-box;
 }
 select option { background: var(--canvas-bg); color: var(--text); }
 body.mobile-mode .pan-zoom-hint { display: block; margin-top: 2px; }
 .button-row { display: flex; flex-wrap: wrap; gap: 5px 5px; align-items: center; }
 .button-row .preset-label { margin-left: 12px; }
+.preset-row { margin-top: 5px; }
+.preset-row .preset-label:first-child { margin-left: 0; }
+.info-row { margin-top: 5px; }
+.maze-info { white-space: nowrap; }
+/* Same box as the preset selects (see `select` above). */
+.maze-info input {
+  font-family: inherit;
+  font-size: 14px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  background: #000;
+  color: #fff;
+  height: 28px;
+  box-sizing: border-box;
+  text-align: right;
+}
+#info-terminals, #info-ports { width: 5em; }
+#info-steps { width: 11em; }
 .preset-status { font-size: 12px; color: var(--error); }
 .preset-status:empty { display: none; }
 body.mobile-mode .button-row button { flex: 1 1 calc(50% - 5px); min-width: 0; }

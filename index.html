@@ -72,7 +72,7 @@ try {
 <style>canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; }</style>
 </head>
 <body>
-<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.45</span> <a href="https://github.com/koteitan/repeated-maze" aria-label="GitHub repository" style="vertical-align:middle;color:inherit;"><svg height="24" viewBox="0 0 16 16" width="24" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.19 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a><!-- faster drawing (Lee cache, merged runs, off-canvas culling) and tetra presets --></h1>
+<h1>Repeated Maze Visualizer <span style="font-size:12px;color:var(--text-dim)">v2.46</span> <a href="https://github.com/koteitan/repeated-maze" aria-label="GitHub repository" style="vertical-align:middle;color:inherit;"><svg height="24" viewBox="0 0 16 16" width="24" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.19 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a><!-- preset groups, maze info boxes, separated Start/Goal labels --></h1>
 <div class="fields">
   <div class="field">
     <label for="maze-input">Maze:</label>
@@ -97,23 +97,17 @@ try {
   <button id="save-img-btn">Save Image</button>
   <button id="copy-url-btn">Copy Link</button>
   <button id="reset-btn">Reset</button>
-  <label class="preset-label">Preset: <select id="preset-select">
-    <option value="">(select)</option>
-    <option value="clear">clear</option>
-    <option value="cp2-3">counter pump cp2-3</option>
-    <option value="cp2-4">counter pump cp2-4</option>
-    <option value="cp2-5">counter pump cp2-5</option>
-    <option value="cp2-6">counter pump cp2-6</option>
-    <option value="md3">minsky doubling md3</option>
-    <option value="md4">minsky doubling md4</option>
-    <option value="md5">minsky doubling md5</option>
-    <option value="cp3-2">counter pump cp3-2</option>
-    <option value="tetra-2">tetration tetra-2</option>
-    <option value="tetra-3">tetration tetra-3</option>
-    <option value="tetra-4">tetration tetra-4</option>
-  </select></label>
-  <span id="preset-status" class="preset-status" role="status"></span>
   <span id="dbg-canvas-size" style="font-size: 12px; color: var(--text-dim);"></span>
+</div>
+<div class="button-row preset-row">
+  <label class="preset-label">Preset Group: <select id="preset-group-select"></select></label>
+  <label class="preset-label">Preset: <select id="preset-select"></select></label>
+  <span id="preset-status" class="preset-status" role="status"></span>
+</div>
+<div class="button-row info-row">
+  <span class="maze-info">terminals: <input type="text" id="info-terminals" readonly>
+    ports: <input type="text" id="info-ports" readonly>
+    steps: <input type="text" id="info-steps" readonly></span>
 </div>
 <div id="normal-section">
   <div class="legend">
@@ -155,6 +149,11 @@ let viewState = { cx: 0, cy: 0, zoom: 1, userControlled: false };
  * px ({ w, h }), or null to fit the window. */
 let canvasSize = null;
 const CANVAS_MIN_SIZE = 100;
+/* Shortest path length of the maze in the textarea, shown in the
+ * info boxes: the preset table's value after a preset is loaded, the
+ * Solve Maze result after a solve, and '' (unknown) once the maze text is
+ * edited. */
+let mazeSteps = '';
 let simpleViewState = { cx: 0, cy: 0, zoom: 1, userControlled: false };
 
 /* Read a CSS custom property (e.g. color('stroke') -> value of --stroke).
@@ -1046,14 +1045,33 @@ function drawNormal(maze, path, nterm, bounds, diagonal, nCterm) {
   ctx.font = `bold ${16 * S}px sans-serif`;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
+  /* Label heights: each label sits at its arrow's height, but when the two
+   * terminals are so close that the glyphs would collide, the labels are
+   * spread apart around their midpoint, keeping their order, just enough
+   * to leave a small gap.  Arrows and the labels' x positions stay where
+   * they are. */
+  let startLabelY = startPos.y, goalLabelY = goalPos.y;
+  {
+    const startAbove = startLabelY <= goalLabelY;
+    const upper = ctx.measureText(startAbove ? 'Start' : 'Goal');
+    const lower = ctx.measureText(startAbove ? 'Goal' : 'Start');
+    const need = (upper.actualBoundingBoxDescent || 6 * S)
+      + (lower.actualBoundingBoxAscent || 6 * S) + 2 * S;
+    const yu = Math.min(startLabelY, goalLabelY), yl = Math.max(startLabelY, goalLabelY);
+    if (yl - yu < need) {
+      const mid = (yu + yl) / 2;
+      startLabelY = startAbove ? mid - need / 2 : mid + need / 2;
+      goalLabelY = startAbove ? mid + need / 2 : mid - need / 2;
+    }
+  }
   /* Start: tail outside, arrowhead at the block edge (points right). */
   arrowShape(startPos.x - arrowLen, startPos.y, startPos.x, startPos.y, color('start'));
   ctx.fillStyle = color('start');
-  ctx.fillText('Start', startPos.x - arrowLen - labelGap, startPos.y);
+  ctx.fillText('Start', startPos.x - arrowLen - labelGap, startLabelY);
   /* Goal: tail at the block edge, arrowhead outside (points left). */
   arrowShape(goalPos.x, goalPos.y, goalPos.x - arrowLen, goalPos.y, color('goal'));
   ctx.fillStyle = color('goal');
-  ctx.fillText('Goal', goalPos.x - arrowLen - labelGap, goalPos.y);
+  ctx.fillText('Goal', goalPos.x - arrowLen - labelGap, goalLabelY);
   ctx.restore();
 
   /* Path line — L-bend segments drawn at 1 pixel via fillRect (crisp)
@@ -1503,6 +1521,7 @@ function formatSolverPath(path) {
 
 function draw() {
   const maze = parseMaze(document.getElementById('maze-input').value);
+  updateMazeInfo(maze);
   const path = parsePath(document.getElementById('answer-input').value);
   const nterm = detectNterm(maze, path);
   const nCterm = detectNCterm(maze, path);
@@ -1594,6 +1613,7 @@ document.getElementById('solve-btn').addEventListener('click', () => {
     btn.disabled = false; btn.textContent = prev;
     if (!path) { alert('No solution found (or too large).'); return; }
     document.getElementById('answer-input').value = formatSolverPath(path);
+    mazeSteps = String(path.length - 1);
     document.getElementById('chk-answer-path').checked = true;
     draw();
     saveState();
@@ -1809,21 +1829,91 @@ document.getElementById('solve-btn').addEventListener('click', () => {
   canvas.style.touchAction = 'none';
 })();
 
-/* ---- Preset dropdown (file-backed mazes under ./maze/) ---- */
-const PRESETS = {
-  clear: null,
-  'cp2-3': 'maze/counter-pump/cp2-3.maze',
-  'cp2-4': 'maze/counter-pump/cp2-4.maze',
-  'cp2-5': 'maze/counter-pump/cp2-5.maze',
-  'cp2-6': 'maze/counter-pump/cp2-6.maze',
-  md3:     'maze/minsky-doubling/md3.maze',
-  md4:     'maze/minsky-doubling/md4.maze',
-  md5:     'maze/minsky-doubling/md5.maze',
-  'cp3-2': 'maze/counter-pump-3/cp3-2.maze',
-  'tetra-2': 'maze/tetra/tetra-2.maze',
-  'tetra-3': 'maze/tetra/tetra-3.maze',
-  'tetra-4': 'maze/tetra/tetra-4.maze',
-};
+/* ---- Preset dropdowns (file-backed mazes under ./maze/) ----
+ * PRESET_GROUPS drives both selects: choosing a group fills the preset
+ * select with that group's mazes.  `steps` is the shortest path length
+ * shown in the steps box after the preset is loaded: a solver result,
+ * or a closed form / estimate where the solver cannot finish. */
+const EXMD_MKS = [
+  [2, 2], [2, 4], [2, 6], [2, 8], [2, 10], [2, 12],
+  [3, 2], [3, 4], [3, 5], [3, 6], [3, 7], [3, 8], [3, 10], [3, 12],
+  [4, 2], [4, 4], [4, 5], [4, 6], [4, 7], [4, 8], [4, 10], [4, 12],
+  [5, 2], [5, 4], [5, 5], [5, 6], [5, 8], [5, 10], [5, 12],
+  [6, 2], [6, 4], [6, 5], [6, 6], [6, 8], [6, 10], [6, 12],
+  [7, 2], [7, 4], [7, 6], [7, 8], [7, 10], [7, 12],
+  [8, 2], [8, 4], [8, 6], [8, 8], [8, 10], [8, 12],
+  [9, 2], [9, 3], [9, 4], [9, 6], [9, 8], [9, 10],
+  [10, 2], [10, 4], [10, 6], [10, 8], [10, 10],
+  [12, 2], [12, 4], [12, 6], [12, 8], [12, 10],
+  [14, 2], [14, 4], [14, 6], [14, 8], [14, 10],
+  [16, 2], [16, 4], [16, 6], [16, 8], [16, 10],
+];
+/* Shortest path of exmd<m>-<k>: 4(m^(k+1)-1)/(m-1) + 1 for even k and
+ * 4(m^(k+1)-1)/(m-1) + m^k for odd k (maze/extended-minsky-doubling/). */
+function exmdSteps(m, k) {
+  const L = 4 * (m ** (k + 1) - 1) / (m - 1) + (k % 2 === 0 ? 1 : m ** k);
+  return String(L);
+}
+const PRESET_GROUPS = [
+  { name: 'counter pump', presets: [
+    { key: 'cp2-3', label: 'cp2-3', file: 'maze/counter-pump/cp2-3.maze', steps: '59' },
+    { key: 'cp2-4', label: 'cp2-4', file: 'maze/counter-pump/cp2-4.maze', steps: '98' },
+    { key: 'cp2-5', label: 'cp2-5', file: 'maze/counter-pump/cp2-5.maze', steps: '147' },
+    { key: 'cp2-6', label: 'cp2-6', file: 'maze/counter-pump/cp2-6.maze', steps: '206' },
+    { key: 'cp3-2', label: 'cp3-2', file: 'maze/counter-pump-3/cp3-2.maze', steps: '32783' },
+  ] },
+  { name: 'minsky doubling', presets: [
+    { key: 'md3', label: 'md3', file: 'maze/minsky-doubling/md3.maze', steps: '117' },
+    { key: 'md4', label: 'md4', file: 'maze/minsky-doubling/md4.maze', steps: '245' },
+    { key: 'md5', label: 'md5', file: 'maze/minsky-doubling/md5.maze', steps: '501' },
+  ] },
+  { name: 'extended minsky doubling', presets: EXMD_MKS.map(([m, k]) => ({
+    key: `exmd${m}-${k}`,
+    label: `md${m}-${k}`,
+    file: `maze/extended-minsky-doubling/exmd${m}-${k}.maze`,
+    steps: exmdSteps(m, k),
+  })) },
+  { name: 'tetration', presets: [
+    { key: 'tetra-2', label: 'tetra-2', file: 'maze/tetra/tetra-2.maze', steps: '≈4.98×10^12' },
+    { key: 'tetra-3', label: 'tetra-3', file: 'maze/tetra/tetra-3.maze', steps: '≈1.6×10^45809' },
+    { key: 'tetra-4', label: 'tetra-4', file: 'maze/tetra/tetra-4.maze', steps: '>3^(2^65536)' },
+  ] },
+];
+/* key -> preset (with its group name); 'clear' empties the textareas. */
+const PRESETS = { clear: null };
+for (const g of PRESET_GROUPS) {
+  for (const p of g.presets) { p.group = g.name; PRESETS[p.key] = p; }
+}
+/* Fill the preset select with the presets of group `name`. */
+function setPresetGroup(name) {
+  const g = PRESET_GROUPS.find(gr => gr.name === name) || PRESET_GROUPS[0];
+  document.getElementById('preset-group-select').value = g.name;
+  const sel = document.getElementById('preset-select');
+  sel.length = 0;
+  sel.add(new Option('(select)', ''));
+  sel.add(new Option('clear', 'clear'));
+  for (const p of g.presets) sel.add(new Option(p.label, p.key));
+}
+{
+  const gsel = document.getElementById('preset-group-select');
+  for (const g of PRESET_GROUPS) gsel.add(new Option(g.name, g.name));
+  setPresetGroup(PRESET_GROUPS[0].name);
+  gsel.addEventListener('change', () => { setPresetGroup(gsel.value); saveState(); });
+}
+
+/* Show terminals / ports (counted from the Maze textarea) and steps. */
+function updateMazeInfo(maze) {
+  if (!maze) maze = parseMaze(document.getElementById('maze-input').value);
+  const nPorts = maze.normal.length + maze.nx.length + maze.ny.length + maze.zero.length;
+  document.getElementById('info-terminals').value = nPorts ? detectNterm(maze, []) : '';
+  document.getElementById('info-ports').value = nPorts || '';
+  document.getElementById('info-steps').value = mazeSteps;
+}
+document.getElementById('maze-input').addEventListener('input', () => {
+  mazeSteps = '';
+  updateMazeInfo();
+});
+
 /* Show (or clear, with '') the preset load error next to the dropdown. */
 function setPresetStatus(msg) {
   const el = document.getElementById('preset-status');
@@ -1836,13 +1926,15 @@ async function loadPreset(key) {
   if (key === 'clear') {
     mazeEl.value = '';
     answerEl.value = '';
+    mazeSteps = '';
   } else if (PRESETS[key]) {
     try {
-      const res = await fetch(PRESETS[key]);
+      const res = await fetch(PRESETS[key].file);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       mazeEl.value = await res.text();
       answerEl.value = '';
       splitMazeInput();
+      mazeSteps = PRESETS[key].steps;
     } catch (e) {
       console.error('preset "' + key + '" failed to load:', e);
       /* Browsers block fetch() of local files, so a file:// page can
@@ -1851,7 +1943,7 @@ async function loadPreset(key) {
         ? ' (presets cannot be loaded from a file:// page; open it over http://)'
         : '';
       setPresetStatus('Failed to load preset "' + key + '" from '
-        + PRESETS[key] + ': ' + (e && e.message ? e.message : e) + hint);
+        + PRESETS[key].file + ': ' + (e && e.message ? e.message : e) + hint);
       return;
     }
   } else {
@@ -1859,8 +1951,10 @@ async function loadPreset(key) {
   }
   /* Reflect the loaded preset in the dropdown so both query-param and
    * user-driven loads keep the select in sync with the current state. */
+  if (PRESETS[key]) setPresetGroup(PRESETS[key].group);
   const sel = document.getElementById('preset-select');
   if (sel && [...sel.options].some(o => o.value === key)) sel.value = key;
+  updateMazeInfo();
   /* Reset viewport and turn off step/answer-path per preset rule. */
   viewState.userControlled = false;
   document.getElementById('chk-answer-path').checked = false;
@@ -2082,6 +2176,8 @@ function loadState() {
       && typeof state.canvasSize.h === 'number') {
     canvasSize = { w: state.canvasSize.w, h: state.canvasSize.h };
   }
+  if (typeof state.presetGroup === 'string') setPresetGroup(state.presetGroup);
+  if (typeof state.mazeSteps === 'string') mazeSteps = state.mazeSteps;
   return true;
 }
 
@@ -2093,6 +2189,8 @@ function saveState() {
     state.view = { cx: viewState.cx, cy: viewState.cy, zoom: viewState.zoom };
   }
   if (canvasSize) state.canvasSize = { w: Math.round(canvasSize.w), h: Math.round(canvasSize.h) };
+  state.presetGroup = document.getElementById('preset-group-select').value;
+  state.mazeSteps = mazeSteps;
   lsSaveRaw('state', JSON.stringify(state));
 }
 
@@ -2148,6 +2246,7 @@ async function applyQueryParams() {
   /* Textareas: prefer compressed *z param (new, short URLs) over the
    * plain one (old v2.11 format stays accepted). */
   const textMap = { maze: 'maze-input', answer: 'answer-input' };
+  if (params.has('mazez') || params.has('maze')) mazeSteps = '';
   for (const [k, id] of Object.entries(textMap)) {
     if (params.has(k + 'z')) {
       const t = await decompressTextFromUrl(params.get(k + 'z'));
