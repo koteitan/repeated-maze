@@ -9,6 +9,7 @@
 - [カウンターポンプ (cp2)](counter-pump/README-ja.md) — 2 レジスタミンスキーで y 座標を n² まで蓄積・放出する。固定復路幅で O(n²)。
 - [カウンターポンプ 3 段 (cp3)](counter-pump-3/) — 3 レジスタの三重ループ。`make-cp3.py` で 3-register Haskell を生成し `nd-to-2d.py` → `hs2maze.py` のパイプラインで O(n³)。
 - [ミンスキーダブリングマシン](minsky-doubling/README-ja.md) — y ↦ 2y+1 を k 回繰り返し、x↔y 移送で乗算を実装。O(2^k)。
+- [extended minsky doubling (exmd)](extended-minsky-doubling/README-ja.md) — 値を m 倍しながら y → x、 x → y にかわりばんこに移すことを k 回。 ポート数 2k(m+2)+10 で経路長 Θ(m^k)。
 - [ペンテーション迷路 (penta)](penta/README-ja.md) — 2 レジスタ Gödel 符号化ミンスキーマシンで 14 個の Fractran 形式ルールによりペンテーションを計算。 均一 4 種ブロックでパス長 Ω(2↑↑↑n)。
 - [テトレーション迷路 (tetra)](tetra/README-ja.md) — 4 レジスタ・11 ルールの機械で b を 2 のべき乗タワーにし、 `nd-to-2d.py --fuse` で迷路化。 約 400 ポートでパス長 > 3^(2^65536)。
 

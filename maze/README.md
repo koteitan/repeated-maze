@@ -9,6 +9,7 @@ Known construction methods for repeated mazes that produce long shortest paths.
 - [Counter Pump (cp2)](counter-pump/README.md) — 2-register Minsky machine that accumulates and drains the y coordinate up to n². O(n²) path length with fixed return width.
 - [Counter Pump 3-stage (cp3)](counter-pump-3/) — 3-register triple-nested loop. Generate the 3-register Haskell with `make-cp3.py`, then pipe through `nd-to-2d.py` → `hs2maze.py` for O(n³).
 - [Minsky Doubling Machine](minsky-doubling/README.md) — Repeats y ↦ 2y+1 for k cycles, implementing the doubling via x↔y transfer. O(2^k) path length.
+- [Extended Minsky Doubling (exmd)](extended-minsky-doubling/README.md) — Moves the value back and forth between y and x, multiplying it by m, k times. Θ(m^k) path length with 2k(m+2)+10 ports.
 - [Pentation Maze (penta)](penta/README.md) — 2-register Gödel-encoded Minsky machine that computes pentation via 14 Fractran-style rules. Ω(2↑↑↑n) path length on uniform 4-block-types.
 - [Tetration Maze (tetra)](tetra/README.md) — 4-register, 11-rule machine that turns b into a power tower of 2s, compiled with `nd-to-2d.py --fuse`. About 400 ports and a path longer than 3^(2^65536).
 
