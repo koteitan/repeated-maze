@@ -663,6 +663,20 @@ Below is a drawing example for n=5 (shortest path length $\approx 2^5$).
 
 ![Kot-hs2maze-md5-solution.png](Kot-hs2maze-md5-solution.png)
 
+#### 9.3.3 Extended Minsky doubling machine
+One cycle of the doubling machine doubles y into x (phase 1) and moves x back to y unchanged (phase 2). The extended Minsky doubling machine exmd*m*-*k* ([maze/extended-minsky-doubling/](https://github.com/koteitan/repeated-maze/tree/main/maze/extended-minsky-doubling)) grows the value on the way back too: it multiplies the value by $m$ on both moves, y → x and x → y, and repeats this $k$ times to obtain $m^k$. On the maze the walker goes alternately in the $(+m, -1)$ and $(-1, +m)$ directions. Since there is no phase that only moves the value back, multiplying the value by $m$ takes only $m + 2$ rules, and the maze gets a longer path than the doubling machine with fewer ports.
+
+The number of ports $P$ and the shortest path length $L^*$ are as follows. The formula for $L^*$ agrees with the 16 mazes solved by the solver.
+
+- $P = 2k(m+2) + 10$
+- $L^* = 4(m^{k+1} - 1)/(m - 1) + 1$ for even $k$, and $L^* = 4(m^{k+1} - 1)/(m - 1) + m^k$ for odd $k$
+
+For example, md5 has 80 ports and a shortest path length of 501, whereas exmd4-6 has 82 ports and a shortest path length of 21,845. In the visualiser they can be opened from the Preset Group "extended minsky doubling".
+
+Below is a drawing example for $m = 4$, $k = 7$ (exmd4-7). It has 94 ports, and its shortest path length is 103,764 by the formula.
+
+![Kot-hs2maze-md-4-7.png](Kot-hs2maze-md-4-7.png)
+
 ### 9.4 Tetration maze (shortest path length Ω(3^(2↑↑(M+1))))
 In the Minsky doubling machine of §9.3, the shortest path length grows exponentially in the number of ports. In this section I use Gödel encoding to raise this to the order of tetration. cp3-2 of §9.2 has 382 ports and can be drawn in the visualiser, but its shortest path length is only 32,783. Here I build a maze with about as many ports as cp3-2 whose shortest path length is a huge number.
 
